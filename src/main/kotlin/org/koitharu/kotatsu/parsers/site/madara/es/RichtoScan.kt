@@ -4,8 +4,10 @@ import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
+import org.koitharu.kotatsu.parsers.Broken
 import java.util.*
 
+@Broken
 @MangaSourceParser("RICHTOSCAN", "RichtoScan", "es")
 internal class RichtoScan(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.RICHTOSCAN, "r1.richtoon.top") {

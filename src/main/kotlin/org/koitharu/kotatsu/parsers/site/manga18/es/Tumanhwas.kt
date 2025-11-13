@@ -5,7 +5,9 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.manga18.Manga18Parser
+import org.koitharu.kotatsu.parsers.Broken
 
+@Broken
 @MangaSourceParser("TUMANHWAS", "Tumanhwas", "es", ContentType.HENTAI)
 internal class Tumanhwas(context: MangaLoaderContext) :
 	Manga18Parser(context, MangaParserSource.TUMANHWAS, "tumanhwas.club") {

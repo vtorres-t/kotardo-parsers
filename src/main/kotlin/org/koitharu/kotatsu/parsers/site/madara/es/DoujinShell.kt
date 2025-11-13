@@ -5,7 +5,9 @@ import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
+import org.koitharu.kotatsu.parsers.Broken
 
+@Broken
 @MangaSourceParser("DOUJINSHELL", "DoujinShell", "es", ContentType.HENTAI)
 internal class DoujinShell(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.DOUJINSHELL, "www.doujinshell.com", 10) {

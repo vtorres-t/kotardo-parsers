@@ -6,7 +6,9 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
+import org.koitharu.kotatsu.parsers.Broken
 
+@Broken
 @MangaSourceParser("MANHWA18CC", "Manhwa18.cc", "", ContentType.HENTAI)
 internal class Manhwa18Cc(context: MangaLoaderContext) :
 	MadaraParser(context, MangaParserSource.MANHWA18CC, "manhwa18.cc", 24) {
