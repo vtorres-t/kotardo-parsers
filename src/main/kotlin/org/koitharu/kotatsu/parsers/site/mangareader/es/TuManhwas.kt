@@ -10,7 +10,9 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import org.koitharu.kotatsu.parsers.Broken
 
+@Broken
 @MangaSourceParser("TU_MANHWAS", "TuManhwas.com", "es")
 internal class TuManhwas(context: MangaLoaderContext) :
 	MangaReaderParser(context, MangaParserSource.TU_MANHWAS, "tumanhwas.com", 20, 20) {
