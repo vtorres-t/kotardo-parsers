@@ -2,7 +2,6 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import okhttp3.Headers
 import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
@@ -120,7 +119,7 @@ internal class Comix(context: MangaLoaderContext) :
     // kotlin
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
         val url = buildString {
-            append("https://comix.to/api/v2/mangas?")
+            append("https://comix.to/api/v2/manga?")
             var firstParam = true
             fun addParam(param: String) {
                 if (firstParam) {
@@ -210,7 +209,7 @@ internal class Comix(context: MangaLoaderContext) :
         val chaptersDeferred = async { getChapters(manga) }
 
         // Get detailed manga info
-        val detailUrl = "https://comix.to/api/v2/mangas/$hashId"
+        val detailUrl = "https://comix.to/api/v2/manga/$hashId"
         val response = webClient.httpGet(detailUrl).parseJson()
 
         if (response.has("result")) {
@@ -310,7 +309,7 @@ internal class Comix(context: MangaLoaderContext) :
 
         // Fetch all chapters with pagination
         while (true) {
-            val chaptersUrl = "https://comix.to/api/v2/mangas/$hashId/chapters?order[number]=desc&limit=100&page=$page"
+            val chaptersUrl = "https://comix.to/api/v2/manga/$hashId/chapters?order[number]=desc&limit=100&page=$page"
             val response = webClient.httpGet(chaptersUrl).parseJson()
             val result = response.getJSONObject("result")
             val items = result.getJSONArray("items")
