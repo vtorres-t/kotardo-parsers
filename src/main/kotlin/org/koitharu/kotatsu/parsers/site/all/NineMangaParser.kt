@@ -1,17 +1,18 @@
 package org.koitharu.kotatsu.parsers.site.all
 
-import androidx.collection.ArrayMap
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Interceptor
-import okhttp3.Response
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
+import androidx.collection.ArrayMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -19,7 +20,7 @@ internal abstract class NineMangaParser(
 	context: MangaLoaderContext,
 	source: MangaParserSource,
 	defaultDomain: String,
-) : PagedMangaParser(context, source, pageSize = 26), Interceptor {
+) : PagedMangaParser(context, source, pageSize = 26) {
 
 	override val configKeyDomain = ConfigKey.Domain(defaultDomain)
 
@@ -29,8 +30,10 @@ internal abstract class NineMangaParser(
 	}
 
 	init {
-		context.cookieJar.insertCookies(domain, "ninemanga_template_desk=yes")
+		context.cookieJar.insertCookies(domain, "ninemanga_template_desk=no")
 	}
+
+
 
 	override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
 		.add("Accept-Language", "en-US;q=0.7,en;q=0.3")
@@ -56,15 +59,7 @@ internal abstract class NineMangaParser(
 		),
 	)
 
-	override fun intercept(chain: Interceptor.Chain): Response {
-		val request = chain.request()
-		val newRequest = if (request.url.host == domain) {
-			request.newBuilder().removeHeader("Referer").build()
-		} else {
-			request
-		}
-		return chain.proceed(newRequest)
-	}
+
 
 	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
 		val url = buildString {
@@ -76,10 +71,9 @@ internal abstract class NineMangaParser(
 				append("?page=")
 				append(page.toString())
 
-				filter.query?.let {
-					append("&name_sel=contain&wd=")
-					append(filter.query.urlEncoded())
-				}
+				append("&name_sel=contain&wd=")
+				append(filter.query?.urlEncoded().orEmpty())
+				append("&author_sel=contain&author=&artist_sel=contain&artist=")
 
 				append("&category_id=")
 				append(filter.tags.joinToString(separator = ",") { it.key })
@@ -87,66 +81,77 @@ internal abstract class NineMangaParser(
 				append("&out_category_id=")
 				append(filter.tagsExclude.joinToString(separator = ",") { it.key })
 
+				append("&completed_series=")
 				filter.states.oneOrThrowIfMany()?.let {
-					append("&completed_series=")
 					when (it) {
 						MangaState.ONGOING -> append("no")
 						MangaState.FINISHED -> append("yes")
 						else -> append("either")
 					}
-				}
+				} ?: append("either")
+				
+				append("&released=0&type=high")
 
 			} else {
-				append("/category/index_")
-				append(page.toString())
+				append("/list/Hot-Book/")
+				if (page > 1) {
+					append("?page=")
+					append(page.toString())
+				}
 			}
 		}
-		val doc = webClient.httpGet(url).parseHtml()
-		val root = doc.body().selectFirstOrThrow("ul.direlist")
+		val doc = captureDocument(url)
+		val root = doc.body().selectFirstOrThrow("ul#list_container")
 		val baseHost = root.baseUri().toHttpUrl().host
 		return root.select("li").map { node ->
-			val href = node.selectFirstOrThrow("a").attrAsAbsoluteUrl("href")
+			val href = node.selectFirstOrThrow("dt > a").attrAsAbsoluteUrl("href")
 			val relUrl = href.toRelativeUrl(baseHost)
-			val dd = node.selectFirst("dd")
+			val dd = node.selectFirst("dd.book-list")
 			Manga(
 				id = generateUid(relUrl),
 				url = relUrl,
 				publicUrl = href,
-				title = dd?.selectFirst("a.bookname")?.text()?.toCamelCase().orEmpty(),
+				title = dd?.selectFirst("a")?.text()?.toCamelCase().orEmpty(),
 				altTitles = emptySet(),
 				coverUrl = node.selectFirst("img")?.src(),
 				rating = RATING_UNKNOWN,
 				authors = emptySet(),
 				contentRating = null,
-				tags = emptySet(),
+				tags = dd?.select("span")?.flatMap { span -> 
+					span.text().split(",").mapNotNull { tag ->
+						tag.trim().takeIf { it.isNotEmpty() }?.let { MangaTag(key = it, title = it, source = source) }
+					} 
+				}?.toSet().orEmpty(),
 				state = null,
 				source = source,
-				description = dd?.selectFirst("p")?.html(),
+				description = null,
 			)
 		}
 	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
-		val doc = webClient.httpGet(
+		val doc = captureDocument(
 			manga.url.toAbsoluteUrl(domain) + "?waring=1",
-		).parseHtml()
-		val root = doc.body().selectFirstOrThrow("div.manga")
-		val infoRoot = root.selectFirstOrThrow("div.bookintro")
-		val tagMap = getOrCreateTagMap()
-		val selectTag = infoRoot.getElementsByAttributeValue("itemprop", "genre").first()?.select("a")
-		val tags = selectTag?.mapNotNullToSet { tagMap[it.text()] }
-		val author = infoRoot.getElementsByAttributeValue("itemprop", "author").first()?.textOrNull()
+		)
+		val root = doc.body().selectFirstOrThrow("div.book-left")
+		val infoRoot = root.selectFirstOrThrow("div.book-info")
+		
+		val author = infoRoot.select("dd.about-book > p").find { it.text().contains("Autor:", ignoreCase = true) }?.select("a")?.text()
+		val statusText = infoRoot.select("dd.about-book > p").find { it.text().contains("Status:", ignoreCase = true) }?.select("a")?.text()
+		val description = infoRoot.select("dd.short-info > p").find { it.text().contains("Sinopse:", ignoreCase = true) }?.html()?.substringAfter("</span>")
+		
 		return manga.copy(
-			title = root.selectFirst("h1[itemprop=name]")?.textOrNull()?.removeSuffix("Manga")?.trimEnd()
-				?: manga.title,
-			tags = tags.orEmpty(),
+			title = infoRoot.selectFirst("h1")?.textOrNull()?.removeSuffix("Manga")?.trimEnd() ?: manga.title,
+			tags = root.select("ul.inset-menu > li > a").mapNotNullToSet { 
+				val text = it.text()
+				if (text.isNotEmpty()) MangaTag(key = text, title = text, source = source) else null 
+			},
 			authors = setOfNotNull(author),
-			state = parseStatus(infoRoot.select("li a.red").text()),
-			description = infoRoot.getElementsByAttributeValue("itemprop", "description").first()?.html()
-				?.substringAfter("</b>"),
-			chapters = root.selectFirst("div.chapterbox")?.select("ul.sub_vol_ul > li")
+			state = statusText?.let { parseStatus(it) },
+			description = description,
+			chapters = root.selectFirst("ul.chapter-box")?.select("li")
 				?.mapChapters(reversed = true) { i, li ->
-					val a = li.selectFirstOrThrow("a.chapter_list_a")
+					val a = li.selectFirst("div.chapter-name.long > a") ?: li.selectFirstOrThrow("div.chapter-name.short > a")
 					val href = a.attrAsRelativeUrl("href").replace("%20", " ")
 					MangaChapter(
 						id = generateUid(href),
@@ -154,7 +159,7 @@ internal abstract class NineMangaParser(
 						number = i + 1f,
 						volume = 0,
 						url = href,
-						uploadDate = parseChapterDateByLang(li.selectFirst("span")?.text().orEmpty()),
+						uploadDate = parseChapterDateByLang(li.selectFirst("div.add-time > span")?.text().orEmpty()),
 						source = source,
 						scanlator = null,
 						branch = null,
@@ -164,7 +169,7 @@ internal abstract class NineMangaParser(
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val doc = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
+		val doc = captureDocument(chapter.url.toAbsoluteUrl(domain))
 		return doc.body().requireElementById("page").select("option").map { option ->
 			val url = option.attr("value")
 			MangaPage(
@@ -177,7 +182,7 @@ internal abstract class NineMangaParser(
 	}
 
 	override suspend fun getPageUrl(page: MangaPage): String {
-		val doc = webClient.httpGet(page.url.toAbsoluteUrl(domain)).parseHtml()
+		val doc = captureDocument(page.url.toAbsoluteUrl(domain))
 		val root = doc.body()
 		return root.selectFirstOrThrow("a.pic_download").attrAsAbsoluteUrl("href")
 	}
@@ -188,7 +193,7 @@ internal abstract class NineMangaParser(
 	private suspend fun getOrCreateTagMap(): Map<String, MangaTag> = mutex.withLock {
 		tagCache?.let { return@withLock it }
 		val tagMap = ArrayMap<String, MangaTag>()
-		val tagElements = webClient.httpGet("https://${domain}/search/?type=high").parseHtml().select("li.cate_list")
+		val tagElements = captureDocument("https://${domain}/search/?type=high").select("li.cate_list")
 		for (el in tagElements) {
 			if (el.text().isEmpty()) continue
 			val cateId = el.attr("cate_id")
@@ -201,6 +206,59 @@ internal abstract class NineMangaParser(
 		}
 		tagCache = tagMap
 		return@withLock tagMap
+	}
+
+	private suspend fun captureDocument(url: String): Document {
+		val script = """
+			(() => {
+				const title = document.title.toLowerCase();
+				const bodyText = document.body.innerText;
+
+				const hasBlockedTitle = title.includes('access denied');
+				const hasFake404 = title.includes('404 not found') && bodyText.includes('the site is closed');
+				const hasActiveChallengeForm = document.querySelector('form[action*="__cf_chl"]') !== null;
+				const hasChallengeScript = document.querySelector('script[src*="challenge-platform"]') !== null;
+
+				if (hasBlockedTitle || hasFake404 || hasActiveChallengeForm || hasChallengeScript) {
+					return "CLOUDFLARE_BLOCKED";
+				}
+
+				const hasContent = document.querySelector('ul#list_container') !== null ||
+								   document.querySelector('div.book-left') !== null ||
+								   document.getElementById('page') !== null ||
+								   document.querySelector('a.pic_download') !== null ||
+								   document.querySelector('li.cate_list') !== null;
+
+				if (hasContent) {
+					return document.documentElement.outerHTML;
+				}
+				return null;
+			})();
+		""".trimIndent()
+
+		val rawHtml = context.evaluateJs(url, script, 30000L) ?: throw ParseException("Failed to load page", url)
+
+		val html = rawHtml.let { raw ->
+			val unquoted = if (raw.startsWith("\"") && raw.endsWith("\"")) {
+				raw.substring(1, raw.length - 1)
+					.replace("\\\"", "\"")
+					.replace("\\n", "\n")
+					.replace("\\r", "\r")
+					.replace("\\t", "\t")
+			} else raw
+
+			unquoted.replace(Regex("""\\u([0-9A-Fa-f]{4})""")) { match ->
+				val hexValue = match.groupValues[1]
+				hexValue.toInt(16).toChar().toString()
+			}
+		}
+
+		if (html == "CLOUDFLARE_BLOCKED") {
+			context.requestBrowserAction(this, url)
+			throw ParseException("Cloudflare challenge detected", url)
+		}
+
+		return Jsoup.parse(html, url)
 	}
 
 	private fun parseStatus(status: String) = when {
