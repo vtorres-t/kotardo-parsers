@@ -2,10 +2,13 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.exception.ParseException
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.text.SimpleDateFormat
@@ -23,8 +26,9 @@ internal class MangaGeko(context: MangaLoaderContext) :
 	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
 			isSearchSupported = true,
-			isMultipleTagsSupported = true,
-			isTagsExclusionSupported = true,
+			isSearchWithFiltersSupported = true,
+			isMultipleTagsSupported = false, // Only one genre at a time
+			isTagsExclusionSupported = true, // Single genre exclusion supported
 		)
 
 	override suspend fun getFilterOptions() = MangaListFilterOptions(
@@ -40,57 +44,68 @@ internal class MangaGeko(context: MangaLoaderContext) :
 		val url = buildString {
 			append("https://")
 			append(domain)
-			when {
-				!filter.query.isNullOrEmpty() -> {
-					if (page > 1) {
-						return emptyList()
-					}
-					append("/search/?search=")
-					append(filter.query.urlEncoded())
-				}
+			append("/browse-comics/")
 
-				else -> {
+			val params = mutableListOf<String>()
 
-					append("/browse-comics/?results=")
-					append(page)
+			// Add search query
+			if (!filter.query.isNullOrEmpty()) {
+				params.add("q=${filter.query.urlEncoded()}")
+			}
 
-					if (filter.tags.isNotEmpty()) {
-						append("&tags_include=")
-						append(filter.tags.joinToString(separator = ",") { it.key })
-					}
+			// Add page parameter
+			if (page > 1) {
+				params.add("page=$page")
+			} else {
+				params.add("page=1")
+			}
 
-					if (filter.tagsExclude.isNotEmpty()) {
-						append("&tags_exclude=")
-						append(filter.tagsExclude.joinToString(separator = ",") { it.key })
-					}
+			// Add single genre filter (only one genre allowed)
+			if (filter.tags.isNotEmpty()) {
+				val singleTag = filter.tags.first() // Only use the first selected genre
+				params.add("include_genres=${singleTag.key}")
+			}
 
-					append("&filter=")
-					when (order) {
-						SortOrder.POPULARITY -> append("views")
-						SortOrder.UPDATED -> append("Updated")
-						SortOrder.NEWEST -> append("New")
-						// SortOrder.RANDOM -> append("Random")
-						else -> append("Updated")
-					}
-				}
+			// Add single excluded genre (only one genre allowed)
+			if (filter.tagsExclude.isNotEmpty()) {
+				val singleExcludeTag = filter.tagsExclude.first() // Only use the first excluded genre
+				params.add("exclude_genres=${singleExcludeTag.key}")
+			}
+
+			// Add sort filter
+			params.add("filter=" + when (order) {
+				SortOrder.POPULARITY -> "views"
+				SortOrder.UPDATED -> "Updated"
+				SortOrder.NEWEST -> "New"
+				else -> "Updated"
+			})
+
+			// Append parameters
+			if (params.isNotEmpty()) {
+				append("?")
+				append(params.joinToString("&"))
 			}
 		}
-		val doc = webClient.httpGet(url).parseHtml()
-		return doc.select("li.novel-item").map { div ->
-			val href = div.selectFirstOrThrow("a").attrAsRelativeUrl("href")
-			val author = div.selectFirstOrThrow("h6").text().removePrefix("Author(S): ").nullIfEmpty()
+
+		val doc = captureDocument(url)
+
+		return doc.select("article.comic-card").map { article ->
+			val href = article.selectFirstOrThrow("h3.comic-card__title a").attrAsRelativeUrl("href")
+			val title = article.selectFirstOrThrow("h3.comic-card__title a").text()
+			val coverUrl = article.selectFirst("div.comic-card__cover img")?.src() ?: ""
+
 			Manga(
 				id = generateUid(href),
-				title = div.selectFirstOrThrow("h4").text(),
+				title = title,
 				altTitles = emptySet(),
 				url = href,
 				publicUrl = href.toAbsoluteUrl(domain),
 				rating = RATING_UNKNOWN,
 				contentRating = null,
-				coverUrl = div.selectFirstOrThrow("img").src(),
+				coverUrl = coverUrl,
 				tags = emptySet(),
 				state = null,
-				authors = setOfNotNull(author),
+				authors = emptySet(),
 				source = source,
 			)
 		}
@@ -98,10 +113,12 @@ internal class MangaGeko(context: MangaLoaderContext) :
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
 		val doc = webClient.httpGet("https://$domain/browse-comics/").parseHtml()
-		return doc.selectFirstOrThrow("div.genre-select-i").select("label").mapToSet { label ->
+		return doc.select("button.chip[data-group='include_genres']").mapToSet { button ->
+			val value = button.attr("data-value")
+			val title = button.text()
 			MangaTag(
-				key = label.selectFirstOrThrow("input").attr("value"),
-				title = label.text(),
+				key = value,
+				title = title,
 				source = source,
 			)
 		}
@@ -173,4 +190,63 @@ internal class MangaGeko(context: MangaLoaderContext) :
                 )
             }
     }
+
+	private suspend fun captureDocument(url: String): Document {
+		val script = """
+			(() => {
+				// Check for different types of content
+				const resultsContainer = document.querySelector('#results-container');
+				const comicsContainer = document.querySelector('#comics-container');
+				const comicCards = document.querySelectorAll('#results-container article.comic-card');
+
+				// For browse-comics pages, wait for comic cards to be populated in results container
+				if (resultsContainer && comicsContainer) {
+					if (comicCards.length > 0) {
+						window.stop();
+						const elementsToRemove = document.querySelectorAll('script, iframe, object, embed, style');
+						elementsToRemove.forEach(el => el.remove());
+						return document.documentElement.outerHTML;
+					}
+					return null; // Keep waiting for content to load
+				}
+
+				// For other content types (details, chapters, tags)
+				const hasMangaDetails = document.querySelector('.author') !== null ||
+										document.querySelector('.description') !== null ||
+										document.querySelector('.categories') !== null;
+
+				const hasChapterList = document.querySelector('#chapters') !== null ||
+									   document.querySelector('ul.chapter-list') !== null;
+
+				const hasChapterPages = document.querySelector('center img') !== null;
+
+				const hasTags = document.querySelector('button.chip[data-group="include_genres"]') !== null;
+
+				// If any other expected content is found, stop loading and return HTML
+				if (hasMangaDetails || hasChapterList || hasChapterPages || hasTags) {
+					window.stop();
+					const elementsToRemove = document.querySelectorAll('script, iframe, object, embed, style');
+					elementsToRemove.forEach(el => el.remove());
+					return document.documentElement.outerHTML;
+				}
+				return null;
+			})();
+		""".trimIndent()
+
+		val rawHtml = context.evaluateJs(url, script, 30000L) ?: throw ParseException("Failed to load page", url)
+
+		val html = if (rawHtml.startsWith("\"") && rawHtml.endsWith("\"")) {
+			rawHtml.substring(1, rawHtml.length - 1)
+				.replace("\\\"", "\"")
+				.replace("\\n", "\n")
+				.replace("\\r", "\r")
+				.replace("\\t", "\t")
+				.replace(Regex("""\\u([0-9A-Fa-f]{4})""")) { match ->
+					val hexValue = match.groupValues[1]
+					hexValue.toInt(16).toChar().toString()
+				}
+		} else rawHtml
+
+		return Jsoup.parse(html, url)
+	}
 }
