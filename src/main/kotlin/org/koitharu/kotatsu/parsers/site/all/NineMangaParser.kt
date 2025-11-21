@@ -36,7 +36,7 @@ internal abstract class NineMangaParser(
 
 
 	override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
-		.add("Accept-Language", "en-US;q=0.7,en;q=0.3")
+		.add("Accept-Language", "fr-FR,fr;q=0.9")
 		.build()
 
 	override val availableSortOrders: Set<SortOrder> = Collections.singleton(
@@ -111,7 +111,7 @@ internal abstract class NineMangaParser(
 				id = generateUid(relUrl),
 				url = relUrl,
 				publicUrl = href,
-				title = dd?.selectFirst("a")?.text()?.toCamelCase().orEmpty(),
+				title = dd?.selectFirst("a > b")?.text()?.toCamelCase().orEmpty(),
 				altTitles = emptySet(),
 				coverUrl = node.selectFirst("img")?.src(),
 				rating = RATING_UNKNOWN,
@@ -138,7 +138,7 @@ internal abstract class NineMangaParser(
 		
 		val author = infoRoot.select("dd.about-book > p").find { it.text().contains("Autor:", ignoreCase = true) }?.select("a")?.text()
 		val statusText = infoRoot.select("dd.about-book > p").find { it.text().contains("Status:", ignoreCase = true) }?.select("a")?.text()
-		val description = infoRoot.select("dd.short-info > p").find { it.text().contains("Sinopse:", ignoreCase = true) }?.html()?.substringAfter("</span>")
+		val description = infoRoot.selectFirst("dd.short-info p span")?.text()?.trim()
 		
 		return manga.copy(
 			title = infoRoot.selectFirst("h1")?.textOrNull()?.removeSuffix("Manga")?.trimEnd() ?: manga.title,
@@ -168,23 +168,100 @@ internal abstract class NineMangaParser(
 		)
 	}
 
+	override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
+
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val doc = captureDocument(chapter.url.toAbsoluteUrl(domain))
-		return doc.body().requireElementById("page").select("option").map { option ->
-			val url = option.attr("value")
-			MangaPage(
-				id = generateUid(url),
-				url = url,
-				preview = null,
-				source = source,
-			)
+		// Import cookies from domain and use HTTP request instead of captureDocument
+		val url = chapter.url.toAbsoluteUrl(domain)
+		val cookies = context.cookieJar.getCookies(domain)
+		val headers = getRequestHeaders().newBuilder()
+			.add("Referer", "https://$domain/")
+			.apply {
+				if (cookies.isNotEmpty()) {
+					add("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" })
+				}
+			}
+			.build()
+
+		val doc = webClient.httpGet(url, headers).parseHtml()
+
+		// Check for page selector dropdown first
+		val pageSelect = doc.selectFirst("select.sl-page")
+			?: doc.selectFirst("select#page")
+			?: doc.selectFirst("select[name=page]")
+
+		// Always use the efficient -10-pageNumber.html format
+		// Get total pages from the download link text (e.g., "1 / 57")
+		val totalPagesText = doc.selectFirst("a.pic_download")?.text()?.substringAfter("/")?.trim()?.toIntOrNull()
+			?: throw ParseException("Page count not found", chapter.url)
+
+		// Generate multi-image page URLs (each contains ~10 images)
+		val baseUrl = chapter.url.toAbsoluteUrl(domain)
+		val allPageUrls = mutableListOf<String>()
+
+		// Each page contains 10 images, calculate how many pages we need
+		val imagesPerPage = 10
+		val totalPages = (totalPagesText + imagesPerPage - 1) / imagesPerPage // Ceiling division
+
+		for (pageNum in 1..totalPages) {
+			// Generate URL: chapter-id-10-pageNumber.html (each page has 10 images)
+			allPageUrls.add(baseUrl.replace(".html", "-10-$pageNum.html"))
 		}
+
+		val allPages = mutableListOf<MangaPage>()
+
+		// Process all page URLs to collect images in order
+		for (pageUrl in allPageUrls) {
+			val pageDoc = if (pageUrl == chapter.url.toAbsoluteUrl(domain)) {
+				doc // Use already loaded first page
+			} else {
+				try {
+					webClient.httpGet(pageUrl, headers).parseHtml()
+				} catch (e: Exception) {
+					continue // Skip failed pages
+				}
+			}
+
+			// Get ALL images from this page
+			val images = pageDoc.select("img.manga_pic")
+			for (img in images) {
+				val imgUrl = img.attrAsAbsoluteUrl("src")
+				if (imgUrl.isNotEmpty() && !allPages.any { it.url == imgUrl }) {
+					allPages.add(MangaPage(generateUid(imgUrl), imgUrl, null, source))
+				}
+			}
+		}
+
+		// If no images found, fallback to old behavior
+		if (allPages.isEmpty()) {
+			return allPageUrls.map { url ->
+				MangaPage(generateUid(url), url, null, source)
+			}
+		}
+
+		return allPages
 	}
 
 	override suspend fun getPageUrl(page: MangaPage): String {
-		val doc = captureDocument(page.url.toAbsoluteUrl(domain))
+		if (page.url.endsWith(".jpg", true) || page.url.endsWith(".png", true) || page.url.endsWith(".jpeg", true) || page.url.endsWith(".webp", true)) {
+			return page.url
+		}
+		// Import cookies from domain and use HTTP request instead of captureDocument
+		val url = page.url.toAbsoluteUrl(domain)
+		val cookies = context.cookieJar.getCookies(domain)
+		val headers = getRequestHeaders().newBuilder()
+			.add("Referer", "https://$domain/")
+			.apply {
+				if (cookies.isNotEmpty()) {
+					add("Cookie", cookies.joinToString("; ") { "${it.name}=${it.value}" })
+				}
+			}
+			.build()
+
+		val doc = webClient.httpGet(url, headers).parseHtml()
 		val root = doc.body()
-		return root.selectFirstOrThrow("a.pic_download").attrAsAbsoluteUrl("href")
+		return root.selectFirst("img.manga_pic")?.attrAsAbsoluteUrl("src")
+			?: root.selectFirstOrThrow("a.pic_download").attrAsAbsoluteUrl("href")
 	}
 
 	private var tagCache: ArrayMap<String, MangaTag>? = null
@@ -225,11 +302,16 @@ internal abstract class NineMangaParser(
 
 				const hasContent = document.querySelector('ul#list_container') !== null ||
 								   document.querySelector('div.book-left') !== null ||
+								   document.querySelector('div.book-info') !== null ||
 								   document.getElementById('page') !== null ||
 								   document.querySelector('a.pic_download') !== null ||
+								   document.querySelector('img.manga_pic') !== null ||
 								   document.querySelector('li.cate_list') !== null;
 
 				if (hasContent) {
+					window.stop();
+					const elementsToRemove = document.querySelectorAll('script, iframe, object, embed, style');
+					elementsToRemove.forEach(el => el.remove());
 					return document.documentElement.outerHTML;
 				}
 				return null;
@@ -328,7 +410,7 @@ internal abstract class NineMangaParser(
 	class English(context: MangaLoaderContext) : NineMangaParser(
 		context,
 		MangaParserSource.NINEMANGA_EN,
-		"www.ninemanga.com",
+		"ninemanga.com",
 	)
 
 	@MangaSourceParser("NINEMANGA_ES", "NineManga Español", "es")
