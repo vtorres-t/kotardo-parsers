@@ -184,48 +184,25 @@ internal abstract class NineMangaParser(
             .build()
 
         val response = webClient.httpGet(url, headers)
-        var doc = response.parseHtml()
-        var followedRedirect = false
+        val doc = followJavaScriptRedirect(response, headers)
 
-        // Check if we've been redirected to a source selection page
-        val responseUrl = response.request.url.host
-        if (!responseUrl.contains("ninemanga", ignoreCase = true)) {
-            // Look for source selection buttons
-            val sourceLink = doc.selectFirst("a.vision-button[href*=esninemanga], a.cool-blue[href*=esninemanga]")?.attr("href")
-            if (sourceLink != null) {
-                // Clean up the URL (remove &amp; and replace with &)
-                val cleanUrl = sourceLink.replace("&amp;", "&")
-                println("DEBUG: Found source selection page, following source: $cleanUrl")
+        // Try to extract images from JavaScript first (for redirected pages)
+        val scriptContent = doc.select("script[type*=javascript]").firstOrNull { script ->
+            script.html().contains("all_imgs_url")
+        }?.html()
 
-                // Follow the source redirect
-                val sourceResponse = webClient.httpGet(cleanUrl, headers)
-                doc = sourceResponse.parseHtml()
-                followedRedirect = true
-            } else {
-                throw ParseException("Redirected to wrong domain: $responseUrl", chapter.url)
-            }
-        }
+        if (scriptContent != null) {
+            val imageUrlsRegex = """all_imgs_url:\s*\[(.*?)\]""".toRegex(RegexOption.DOT_MATCHES_ALL)
+            val match = imageUrlsRegex.find(scriptContent)
+            if (match != null) {
+                val imageUrlsContent = match.groupValues[1]
+                val imageUrls = """"([^"]+)"""".toRegex().findAll(imageUrlsContent)
+                    .map { it.groupValues[1] }
+                    .toList()
 
-        // If we followed a redirect, try to extract images from JavaScript
-        if (followedRedirect) {
-            val scriptContent = doc.select("script[type*=javascript]").firstOrNull { script ->
-                script.html().contains("all_imgs_url")
-            }?.html()
-
-            if (scriptContent != null) {
-                val imageUrlsRegex = """all_imgs_url:\s*\[(.*?)\]""".toRegex(RegexOption.DOT_MATCHES_ALL)
-                val match = imageUrlsRegex.find(scriptContent)
-                if (match != null) {
-                    val imageUrlsContent = match.groupValues[1]
-                    val imageUrls = """"([^"]+)"""".toRegex().findAll(imageUrlsContent)
-                        .map { it.groupValues[1] }
-                        .toList()
-
-                    if (imageUrls.isNotEmpty()) {
-                        println("DEBUG: Extracted ${imageUrls.size} images from JavaScript array")
-                        return imageUrls.mapIndexed { index, imageUrl ->
-                            MangaPage(generateUid("$imageUrl-$index"), imageUrl, null, source)
-                        }
+                if (imageUrls.isNotEmpty()) {
+                    return imageUrls.mapIndexed { index, imageUrl ->
+                        MangaPage(generateUid("$imageUrl-$index"), imageUrl, null, source)
                     }
                 }
             }
@@ -243,12 +220,7 @@ internal abstract class NineMangaParser(
             ?: pageSelect?.select("option")?.firstNotNullOfOrNull { option ->
                 option.text().substringAfter("/").trim().toIntOrNull()
             }
-            ?: run {
-                println("DEBUG: Page count not found for ${chapter.url}")
-                println("DEBUG: HTML content:")
-                println(doc.html())
-                throw ParseException("Page count not found", chapter.url)
-            }
+            ?: throw ParseException("Page count not found", chapter.url)
 
         // Generate multi-image page URLs (each contains ~10 images)
         val baseUrl = chapter.url.toAbsoluteUrl(domain)
@@ -272,24 +244,7 @@ internal abstract class NineMangaParser(
             } else {
                 try {
                     val pageResponse = webClient.httpGet(pageUrl, headers)
-                    var pageDoc = pageResponse.parseHtml()
-
-                    // Check if we've been redirected to a source selection page
-                    val pageResponseUrl = pageResponse.request.url.host
-                    if (!pageResponseUrl.contains("ninemanga", ignoreCase = true)) {
-                        // Look for source selection buttons
-                        val sourceLink = pageDoc.selectFirst("a.vision-button[href*=esninemanga], a.cool-blue[href*=esninemanga]")?.attr("href")
-                        if (sourceLink != null) {
-                            // Clean up the URL and follow source redirect
-                            val cleanUrl = sourceLink.replace("&amp;", "&")
-                            val sourceResponse = webClient.httpGet(cleanUrl, headers)
-                            pageDoc = sourceResponse.parseHtml()
-                        } else {
-                            continue // Skip pages that redirect to wrong domain
-                        }
-                    }
-
-                    pageDoc
+                    followJavaScriptRedirect(pageResponse, headers)
                 } catch (e: Exception) {
                     continue // Skip failed pages
                 }
@@ -324,23 +279,7 @@ internal abstract class NineMangaParser(
 
                         try {
                             val pageResponse = webClient.httpGet(fullPageUrl, headers)
-                            var pageDoc = pageResponse.parseHtml()
-
-                            // Check if we've been redirected to a source selection page
-                            val pageResponseUrl = pageResponse.request.url.host
-                            if (!pageResponseUrl.contains("ninemanga", ignoreCase = true)) {
-                                // Look for source selection buttons
-                                val sourceLink = pageDoc.selectFirst("a.vision-button[href*=esninemanga], a.cool-blue[href*=esninemanga]")?.attr("href")
-                                if (sourceLink != null) {
-                                    // Clean up the URL and follow source redirect
-                                    val cleanUrl = sourceLink.replace("&amp;", "&")
-                                    val sourceResponse = webClient.httpGet(cleanUrl, headers)
-                                    pageDoc = sourceResponse.parseHtml()
-                                } else {
-                                    continue // Skip pages that redirect to wrong domain
-                                }
-                            }
-
+                            val pageDoc = followJavaScriptRedirect(pageResponse, headers)
                             val images = pageDoc.select("img.manga_pic")
 
                             for (img in images) {
@@ -389,24 +328,8 @@ internal abstract class NineMangaParser(
             .build()
 
         val response = webClient.httpGet(url, headers)
-        var doc = response.parseHtml()
+        val doc = followJavaScriptRedirect(response, headers)
 
-        // Check if we've been redirected to a source selection page
-        val responseUrl = response.request.url.host
-        if (!responseUrl.contains("ninemanga", ignoreCase = true)) {
-            // Look for source selection buttons
-            val sourceLink = doc.selectFirst("a.vision-button[href*=esninemanga], a.cool-blue[href*=esninemanga]")?.attr("href")
-            if (sourceLink != null) {
-                // Clean up the URL (remove &amp; and replace with &)
-                val cleanUrl = sourceLink.replace("&amp;", "&")
-
-                // Follow the source redirect
-                val sourceResponse = webClient.httpGet(cleanUrl, headers)
-                doc = sourceResponse.parseHtml()
-            } else {
-                throw ParseException("Redirected to wrong domain: $responseUrl", page.url)
-            }
-        }
         val root = doc.body()
         return root.selectFirst("img.manga_pic")?.attrAsAbsoluteUrl("src")
             ?: root.selectFirstOrThrow("a.pic_download").attrAsAbsoluteUrl("href")
@@ -414,6 +337,41 @@ internal abstract class NineMangaParser(
 
     private var tagCache: ArrayMap<String, MangaTag>? = null
     private val mutex = Mutex()
+
+    private suspend fun followJavaScriptRedirect(response: okhttp3.Response, headers: okhttp3.Headers): Document {
+        var doc = response.parseHtml()
+
+        // Check if we've been redirected to a different domain
+        val responseUrl = response.request.url.host
+        if (!responseUrl.contains("ninemanga", ignoreCase = true)) {
+            // Check for JavaScript redirect
+            val jsRedirectScript = doc.select("script").firstOrNull { script ->
+                script.html().contains("window.location.href")
+            }
+
+            if (jsRedirectScript != null) {
+                val redirectRegex = """window\.location\.href\s*=\s*["']([^"']+)["']""".toRegex()
+                val match = redirectRegex.find(jsRedirectScript.html())
+                if (match != null) {
+                    val redirectPath = match.groupValues[1]
+                    val redirectUrl = if (redirectPath.startsWith("http")) {
+                        redirectPath
+                    } else {
+                        "${response.request.url.scheme}://${response.request.url.host}$redirectPath"
+                    }
+
+                    // Follow the JavaScript redirect with proper referer
+                    val redirectHeaders = headers.newBuilder()
+                        .set("Referer", response.request.url.toString())
+                        .build()
+                    val redirectedResponse = webClient.httpGet(redirectUrl, redirectHeaders)
+                    doc = redirectedResponse.parseHtml()
+                }
+            }
+        }
+
+        return doc
+    }
 
     private suspend fun getOrCreateTagMap(): Map<String, MangaTag> = mutex.withLock {
         tagCache?.let { return@withLock it }
