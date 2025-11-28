@@ -195,6 +195,7 @@ internal class Comix(context: MangaLoaderContext) :
             coverUrl = coverUrl,
             title = title,
             altTitles = emptySet(),
+            description = description,
             rating = if (rating > 0) (rating / 10.0f).toFloat() else RATING_UNKNOWN,
             tags = emptySet(),
             authors = emptySet(),
@@ -225,6 +226,8 @@ internal class Comix(context: MangaLoaderContext) :
             chapters = chaptersDeferred.await(),
         )
     }
+
+    override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
 
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val chapterId = chapter.url.substringAfterLast("/").substringBefore("-")

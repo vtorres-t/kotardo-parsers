@@ -12,10 +12,8 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.network.UserAgents
 import org.koitharu.kotatsu.parsers.site.madara.MadaraParser
 import org.koitharu.kotatsu.parsers.util.*
-import org.koitharu.kotatsu.parsers.Broken
 import java.util.Locale
 
-@Broken
 @MangaSourceParser("MADARADEX", "MadaraDex", "en", ContentType.HENTAI)
 internal class MadaraDex(context: MangaLoaderContext) :
     MadaraParser(context, MangaParserSource.MADARADEX, "madaradex.org") {
@@ -31,6 +29,7 @@ internal class MadaraDex(context: MangaLoaderContext) :
 
     override fun getRequestHeaders() = super.getRequestHeaders().newBuilder()
         .set("User-Agent", UserAgents.CHROME_DESKTOP)
+        .set("referer", "https://madaradex.org/")
         .build()
 
     override val authUrl: String
@@ -50,20 +49,28 @@ internal class MadaraDex(context: MangaLoaderContext) :
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val fullUrl = chapter.url.toAbsoluteUrl(domain)
         val doc = loadChapterDocument(fullUrl)
-        val root = doc.body().selectFirst(selectBodyPage)
-            ?: throw ParseException("No image found, try to log in", fullUrl)
 
-        return root.select(selectPage).flatMap { div ->
-            div.selectOrThrow("img").map { img ->
-                val rawUrl = img.requireSrc().toRelativeUrl(domain)
-                val cleanUrl = rawUrl.substringBefore('#')
-                MangaPage(
-                    id = generateUid(cleanUrl),
-                    url = cleanUrl,
-                    preview = null,
-                    source = source,
-                )
+        val images = doc.select("div.page-break img")
+
+        if (images.isEmpty()) {
+            throw ParseException("No images found, try to log in", fullUrl)
+        }
+
+        return images.mapNotNull { img ->
+            val rawUrl = img.attr("data-src").ifBlank { img.attr("src") }.trim()
+
+            if (rawUrl.isEmpty()) {
+                return@mapNotNull null
             }
+
+            val cleanUrl = rawUrl.toRelativeUrl(domain).substringBefore('#')
+
+            MangaPage(
+                id = generateUid(cleanUrl),
+                url = cleanUrl,
+                preview = null,
+                source = source,
+            )
         }
     }
 
@@ -95,15 +102,13 @@ internal class MadaraDex(context: MangaLoaderContext) :
     }
 
     private fun isCloudflareDocument(doc: Document): Boolean {
-        val html = doc.outerHtml()
-        if (html.length < 200) {
-            return true
-        }
-        val lower = html.lowercase(Locale.ROOT)
-        return lower.contains("cf-browser-verification") ||
-            lower.contains("turnstile") ||
-            lower.contains("checking your browser") ||
-            lower.contains("checking if the site connection is secure") ||
-            lower.contains("challenge-platform")
+        val title = (doc.title() ?: "").lowercase(Locale.ROOT)
+        val hasBlockedTitle = title.contains("access denied")
+
+        val hasActiveChallengeForm = doc.selectFirst("""form[action*="__cf_chl"]""") != null
+        val hasChallengeScript = doc.selectFirst("""script[src*="challenge-platform"]""") != null
+
+        // Only return blocked if we're absolutely certain
+        return hasBlockedTitle || hasActiveChallengeForm || hasChallengeScript
     }
 }
