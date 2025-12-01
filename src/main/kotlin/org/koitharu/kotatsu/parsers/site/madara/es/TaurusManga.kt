@@ -11,7 +11,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @MangaSourceParser("TAURUSMANGA", "TaurusManga", "es")
 internal class TaurusManga(context: MangaLoaderContext) :
-	MadaraParser(context, MangaParserSource.TAURUSMANGA, "taurus.topmanhuas.org") {
+	MadaraParser(context, MangaParserSource.TAURUSMANGA, "lectortaurus.com") {
 	override val datePattern = "dd/MM/yyyy"
     override val selectDesc: String
         get() = super.selectDesc +", div.summary__content p"
