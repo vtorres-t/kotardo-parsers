@@ -295,7 +295,12 @@ internal class Comix(context: MangaLoaderContext) :
         }
 
         return (0 until images.length()).map { i ->
-            val imageUrl = images.getString(i)
+            val imageItem = images.get(i)
+            val imageUrl = when (imageItem) {
+                is String -> imageItem
+                is JSONObject -> imageItem.getString("url")
+                else -> throw ParseException("Unexpected image format", chapterUrl)
+            }
             MangaPage(
                 id = generateUid("$chapterId-$i"),
                 url = imageUrl,
