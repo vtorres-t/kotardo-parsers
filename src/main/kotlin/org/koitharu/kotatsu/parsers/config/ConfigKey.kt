@@ -52,4 +52,22 @@ public sealed class ConfigKey<T>(
 	public class DisableUpdateChecking(
 		override val defaultValue: Boolean = false,
 	) : ConfigKey<Boolean>("disable_updates")
+
+	/**
+	 * Configuration key for enabling CloudFlare interception and bypass.
+	 *
+	 * When set to true, the parser will attempt to intercept and handle
+	 * CloudFlare challenges automatically using browser evaluation or other
+	 * bypass mechanisms.
+	 *
+	 * Useful for sources that:
+	 * - Are protected by CloudFlare
+	 * - Require JavaScript evaluation to bypass challenges
+	 * - Need browser-like behavior for access
+	 *
+	 * @param defaultValue Default state (default: false - no interception)
+	 */
+	public class InterceptCloudflare(
+		override val defaultValue: Boolean = false,
+	) : ConfigKey<Boolean>("intercept_cloudflare")
 }
