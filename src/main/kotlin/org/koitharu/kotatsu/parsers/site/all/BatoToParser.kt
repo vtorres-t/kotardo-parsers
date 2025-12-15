@@ -228,7 +228,7 @@ internal class BatoToParser(context: MangaLoaderContext) : PagedMangaParser(
 			} else {
 				ContentRating.SAFE
 			},
-			largeCoverUrl = details.selectFirst("img[src]")?.absUrl("src"),
+			largeCoverUrl = details.selectFirst("img[src]")?.absUrl("src")?.let { fixImageUrl(it) },
 			description = details.getElementById("limit-height-body-summary")
 				?.selectFirst(".limit-html")
 				?.html(),
@@ -273,9 +273,11 @@ internal class BatoToParser(context: MangaLoaderContext) : PagedMangaParser(
 			val result = ArrayList<MangaPage>(images.length())
 			repeat(images.length()) { i ->
 				val url = images.getString(i)
+				val fixedUrl = fixImageUrl(url)
+				val finalUrl = if (args.length() == 0) fixedUrl else fixedUrl + "?" + args.getString(i)
 				result += MangaPage(
-					id = generateUid(url),
-					url = if (args.length() == 0) url else url + "?" + args.getString(i),
+					id = generateUid(finalUrl),
+					url = finalUrl,
 					preview = null,
 					source = source,
 				)
@@ -283,6 +285,11 @@ internal class BatoToParser(context: MangaLoaderContext) : PagedMangaParser(
 			return result
 		}
 		throw ParseException("Cannot find images list", fullUrl)
+	}
+
+	private fun fixImageUrl(url: String): String {
+		// Fix image URLs: replace //k with //n to avoid loading issues
+		return url.replace(Regex("(^|//)k(\\d*\\.)"), "$1n$2")
 	}
 
 	private suspend fun fetchAvailableTags(): Set<MangaTag> {
@@ -345,7 +352,7 @@ internal class BatoToParser(context: MangaLoaderContext) : PagedMangaParser(
 				publicUrl = a.absUrl("href"),
 				rating = RATING_UNKNOWN,
 				contentRating = null,
-				coverUrl = div.selectFirst("img[src]")?.absUrl("src"),
+				coverUrl = div.selectFirst("img[src]")?.absUrl("src")?.let { fixImageUrl(it) },
 				largeCoverUrl = null,
 				description = null,
 				tags = div.selectFirst(".item-genre")?.parseTags().orEmpty(),

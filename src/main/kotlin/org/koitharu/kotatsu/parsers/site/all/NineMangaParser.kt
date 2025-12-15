@@ -535,7 +535,7 @@ internal abstract class NineMangaParser(
     class English(context: MangaLoaderContext) : NineMangaParser(
         context,
         MangaParserSource.NINEMANGA_EN,
-        "ninemanga.com",
+        "www.ninemanga.com",
     )
 
     @MangaSourceParser("NINEMANGA_ES", "NineManga Español", "es")
