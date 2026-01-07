@@ -339,41 +339,59 @@ internal class Comix(context: MangaLoaderContext) :
             page++
         }
 
-        // Group chapters by number and pick one translation per chapter (preferring latest)
-        val uniqueChapters = allChapters
-            .groupBy { it.getDouble("number") }
-            .mapValues { (_, chapters) ->
-                // Sort by creation date descending and take the first (most recent)
-                chapters.maxByOrNull { it.getLong("created_at") }!!
+        // Group chapters by scanlation team
+        val chaptersByTeam = mutableMapOf<String, MutableList<JSONObject>>()
+        for (chapter in allChapters) {
+            val scanlationGroup = chapter.optJSONObject("scanlation_group")
+            val teamName = scanlationGroup?.optString("name", null) ?: "Unknown"
+            chaptersByTeam.getOrPut(teamName) { mutableListOf() }.add(chapter)
+        }
+
+        // Get all unique chapter numbers
+        val allChapterNumbers = allChapters.map { it.getDouble("number").toFloat() }.toSet()
+
+        // Build chapters with branches - each team gets complete chapter list with gaps filled
+        val chaptersBuilder = ChaptersListBuilder(allChapters.size * chaptersByTeam.size)
+
+        for ((teamName, teamChapters) in chaptersByTeam) {
+            // Map of chapter numbers this team has
+            val teamChapterMap = teamChapters.associateBy { it.getDouble("number").toFloat() }
+
+            // For each chapter number, use team's version if available, otherwise find best alternative
+            for (chapterNumber in allChapterNumbers) {
+                val chapterData = teamChapterMap[chapterNumber]
+                    ?: allChapters.find { it.getDouble("number").toFloat() == chapterNumber }
+                    ?: continue
+
+                val chapterId = chapterData.getLong("chapter_id")
+                val number = chapterData.getDouble("number").toFloat()
+                val name = chapterData.optString("name", "").nullIfEmpty()
+                val createdAt = chapterData.getLong("created_at")
+                val scanlationGroup = chapterData.optJSONObject("scanlation_group")
+                val actualTeamName = scanlationGroup?.optString("name", null) ?: "Unknown"
+
+                val title = if (name != null) {
+                    "Chapter $number: $name"
+                } else {
+                    "Chapter $number"
+                }
+
+                val chapter = MangaChapter(
+                    id = generateUid("$teamName-$chapterId"),
+                    title = title,
+                    number = number,
+                    volume = 0,
+                    url = "/title/$hashId/$chapterId-chapter-${number.toInt()}",
+                    uploadDate = createdAt * 1000L,
+                    source = source,
+                    scanlator = actualTeamName,
+                    branch = teamName,
+                )
+
+                chaptersBuilder.add(chapter)
             }
-            .values
-            .sortedByDescending { it.getDouble("number") } // Sort by chapter number descending
+        }
 
-        return uniqueChapters.mapIndexedNotNull { index, item ->
-            val chapterId = item.getLong("chapter_id")
-            val number = item.getDouble("number").toFloat()
-            val name = item.optString("name", "").nullIfEmpty()
-            val createdAt = item.getLong("created_at")
-            val scanlationGroup = item.optJSONObject("scanlation_group")
-            val scanlatorName = scanlationGroup?.optString("name", null)
-
-            val title = if (name != null) {
-                "Chapter $number: $name"
-            } else {
-                "Chapter $number"
-            }
-
-            MangaChapter(
-                id = generateUid(chapterId.toString()),
-                title = title,
-                number = number,
-                volume = 0,
-                url = "/title/$hashId/$chapterId-chapter-${number.toInt()}",
-                uploadDate = createdAt * 1000L, // Convert to milliseconds
-                source = source,
-                scanlator = scanlatorName,
-                branch = null,
-            )
-        }.reversed() // Reverse to have ascending order
+        return chaptersBuilder.toList().reversed()
     }
 }
