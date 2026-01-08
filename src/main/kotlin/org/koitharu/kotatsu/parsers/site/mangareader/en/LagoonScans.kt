@@ -6,5 +6,5 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
 
 @MangaSourceParser("LAGOONSCANS", "Lagoon Scans", "en")
-internal class MangaFlame(context: MangaLoaderContext) :
+internal class LagoonScans(context: MangaLoaderContext) :
     MangaReaderParser(context, MangaParserSource.LAGOONSCANS, "lagoonscans.com", pageSize = 20, searchPageSize = 10)
