@@ -1,16 +1,12 @@
 package org.dokiteam.doki.parsers.site.natsu.id
 
-import org.jsoup.Jsoup
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.site.natsu.NatsuParser
-import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
 import org.koitharu.kotatsu.parsers.util.generateUid
-import org.koitharu.kotatsu.parsers.util.parseHtml
-import org.koitharu.kotatsu.parsers.webview.InterceptionConfig
 
 @MangaSourceParser("KIRYUU", "Kiryuu", "id")
 internal class Kiryuu(context: MangaLoaderContext) :
@@ -27,13 +23,13 @@ internal class Kiryuu(context: MangaLoaderContext) :
         mangaId: String,
         mangaAbsoluteUrl: String,
     ): List<MangaChapter> {
-        // Intercept the chapter list AJAX request from WebView
+        // Use WebView to load the page and extract chapter data from the DOM
         val pageScript = """
             (async function() {
                 console.log('[Kiryuu] Starting chapter loading...');
 
                 // Helper function to wait for element
-                function waitForElement(selector, timeout = 5000) {
+                function waitForElement(selector, timeout = 10000) {
                     return new Promise((resolve, reject) => {
                         if (document.querySelector(selector)) {
                             return resolve(document.querySelector(selector));
@@ -63,62 +59,85 @@ internal class Kiryuu(context: MangaLoaderContext) :
                     const tabButton = await waitForElement('button[data-key="chapters"]');
                     console.log('[Kiryuu] Found chapters tab button, clicking...');
                     tabButton.click();
+
+                    // Wait for chapter list to load
+                    await waitForElement('div#chapter-list > div[data-chapter-number]');
+                    console.log('[Kiryuu] Chapter list loaded');
+
+                    // Small delay to ensure all chapters are rendered
+                    await new Promise(resolve => setTimeout(resolve, 500));
+
                 } catch (error) {
                     console.log('[Kiryuu] Error:', error);
                     // Try direct htmx trigger as fallback
                     const chapterList = document.querySelector('#chapter-list');
                     if (chapterList && typeof htmx !== 'undefined') {
                         htmx.trigger(chapterList, 'getChapterList');
+                        await waitForElement('div#chapter-list > div[data-chapter-number]');
                     }
                 }
+
+                // Extract chapter data from DOM
+                const chapters = [];
+                const chapterElements = document.querySelectorAll('div#chapter-list > div[data-chapter-number]');
+
+                chapterElements.forEach(element => {
+                    const a = element.querySelector('a');
+                    if (!a) return;
+
+                    const href = a.getAttribute('href');
+                    if (!href) return;
+
+                    const titleSpan = element.querySelector('div.font-medium span');
+                    const title = titleSpan ? titleSpan.textContent.trim() : '';
+
+                    const timeElement = element.querySelector('time');
+                    const dateText = timeElement ? timeElement.textContent.trim() : null;
+                    const dateTime = timeElement ? timeElement.getAttribute('datetime') : null;
+
+                    const chapterNumber = element.getAttribute('data-chapter-number');
+
+                    chapters.push({
+                        url: href,
+                        title: title,
+                        number: chapterNumber,
+                        dateText: dateText,
+                        dateTime: dateTime
+                    });
+                });
+
+                console.log('[Kiryuu] Extracted ' + chapters.length + ' chapters');
+                return JSON.stringify(chapters);
             })();
         """.trimIndent()
 
-        // Pattern to match the AJAX request - it returns all chapters
-        val urlPattern = Regex("wp-admin/admin-ajax\\.php\\?.*manga_id=$mangaId.*action=chapter_list")
+        val html = context.evaluateJs(mangaAbsoluteUrl, pageScript, timeout = 30000L)
+            ?.takeIf { it.isNotBlank() }
+            ?: throw Exception("Failed to extract chapter data from WebView")
 
-        val config = InterceptionConfig(
-            timeoutMs = 15000L,
-            urlPattern = urlPattern,
-            pageScript = pageScript,
-            maxRequests = 1
-        )
+        // Parse the JSON response from JavaScript
+        val chaptersJson = org.json.JSONArray(html)
+        val chapters = mutableListOf<MangaChapter>()
 
-        val interceptedRequests = context.interceptWebViewRequests(
-            url = mangaAbsoluteUrl,
-            config = config
-        )
+        for (i in 0 until chaptersJson.length()) {
+            val chapterObj = chaptersJson.getJSONObject(i)
+            val url = chapterObj.getString("url")
+            val title = chapterObj.getString("title")
+            val number = chapterObj.optString("number", "-1").toFloatOrNull() ?: -1f
+            val dateText = chapterObj.optString("dateText", null)
 
-        if (interceptedRequests.isEmpty()) {
-            throw Exception("Failed to intercept chapter list request")
-        }
-
-        // Use the intercepted response body directly - it contains all chapters
-        val responseBody = interceptedRequests.first().body
-            ?: throw Exception("Intercepted response body is null")
-
-        val doc = Jsoup.parse(responseBody)
-        val chapterElements = doc.select("div#chapter-list > div[data-chapter-number]")
-
-        val chapters = chapterElements.mapNotNull { element ->
-            val a = element.selectFirst("a") ?: return@mapNotNull null
-            val href = a.attrAsRelativeUrl("href")
-            if (href.isBlank()) return@mapNotNull null
-
-            val chapterTitle = element.selectFirst("div.font-medium span")?.text()?.trim() ?: ""
-            val dateText = element.selectFirst("time")?.text()
-            val number = element.attr("data-chapter-number").toFloatOrNull() ?: -1f
-
-            MangaChapter(
-                id = generateUid(href),
-                title = chapterTitle,
-                url = href,
-                number = number,
-                volume = 0,
-                scanlator = null,
-                uploadDate = parseDate(dateText),
-                branch = null,
-                source = source,
+            chapters.add(
+                MangaChapter(
+                    id = generateUid(url),
+                    title = title,
+                    url = url,
+                    number = number,
+                    volume = 0,
+                    scanlator = null,
+                    uploadDate = parseDate(dateText),
+                    branch = null,
+                    source = source,
+                )
             )
         }
 

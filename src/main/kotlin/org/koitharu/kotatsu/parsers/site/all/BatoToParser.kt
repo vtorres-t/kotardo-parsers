@@ -142,24 +142,12 @@ internal class BatoToV4Parser(context: MangaLoaderContext) :
         val response = graphQLQuery("https://$domain/ap2/", CHAPTER_LIST_QUERY, variables)
         val data = response.getJSONObject("data").getJSONArray("get_comic_chapterList")
 
-        // Parse all chapters with their metadata
-        data class ChapterData(
-            val json: JSONObject,
-            val id: String,
-            val name: String?,
-            val title: String?,
-            val serial: Float,
-            val uploadDate: Long,
-            val groupName: String
-        )
-
-        val allChapters = data.mapJSON { item ->
+        return data.mapJSON { item ->
             val chapter = item.getJSONObject("data")
             val id = chapter.getString("id")
             val name = chapter.optString("dname").takeIf { it.isNotBlank() && it != "null" }
             val title = chapter.optString("title").takeIf { it.isNotBlank() && it != "null" }
-            val serial = chapter.getDouble("serial").toFloat()
-            val uploadDate = chapter.optLong("dateModify", chapter.optLong("dateCreate", 0))
+            val serial = chapter.getDouble("serial")
 
             val groups = chapter.optJSONObject("groupNodes")?.optJSONArray("data")
                 ?.asTypedList<JSONObject>()
@@ -168,57 +156,24 @@ internal class BatoToV4Parser(context: MangaLoaderContext) :
                 .takeIf { !it.isNullOrBlank() }
                 ?: chapter.optJSONObject("userNode")?.optJSONObject("data")?.optString("name")
                     ?.takeIf { it != "null" }
-                ?: "Unknown"
 
-            ChapterData(chapter, id, name, title, serial, uploadDate, groups)
-        }
-
-        // Group chapters by scanlation team
-        val chaptersByTeam = mutableMapOf<String, MutableList<ChapterData>>()
-        for (chapter in allChapters) {
-            chaptersByTeam.getOrPut(chapter.groupName) { mutableListOf() }.add(chapter)
-        }
-
-        // Get all unique chapter numbers
-        val allChapterNumbers = allChapters.map { it.serial }.toSet()
-
-        // Build chapters with branches - each team gets complete chapter list with gaps filled
-        val chaptersBuilder = ChaptersListBuilder(allChapters.size * chaptersByTeam.size)
-
-        for ((teamName, teamChapters) in chaptersByTeam) {
-            // Map of chapter numbers this team has
-            val teamChapterMap = teamChapters.associateBy { it.serial }
-
-            // For each chapter number, use team's version if available, otherwise find best alternative
-            for (chapterNumber in allChapterNumbers) {
-                val chapterData = teamChapterMap[chapterNumber]
-                    ?: allChapters.find { it.serial == chapterNumber }
-                    ?: continue
-
-                val chapterTitle = when {
-                    chapterData.name != null && chapterData.title != null -> "${chapterData.name}: ${chapterData.title}"
-                    chapterData.name != null -> chapterData.name
-                    chapterData.title != null -> chapterData.title
+            MangaChapter(
+                id = generateUid(id),
+                title = when {
+                    name != null && title != null -> "$name: $title"
+                    name != null -> name
+                    title != null -> title
                     else -> null
-                }
-
-                val chapter = MangaChapter(
-                    id = generateUid("$teamName-${chapterData.id}"),
-                    title = chapterTitle,
-                    number = chapterData.serial,
-                    volume = 0,
-                    url = "$comicId/${chapterData.id}",
-                    uploadDate = chapterData.uploadDate,
-                    source = source,
-                    scanlator = chapterData.groupName,
-                    branch = teamName
-                )
-
-                chaptersBuilder.add(chapter)
-            }
+                },
+                number = serial.toFloat(),
+                volume = 0,
+                url = "$comicId/$id",
+                uploadDate = chapter.optLong("dateModify", chapter.optLong("dateCreate", 0)),
+                source = source,
+                scanlator = groups,
+                branch = null
+            )
         }
-
-        return chaptersBuilder.toList()
         // .asReversed()
     }
 
