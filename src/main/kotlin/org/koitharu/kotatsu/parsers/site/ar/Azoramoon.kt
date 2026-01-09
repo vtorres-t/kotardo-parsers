@@ -78,8 +78,23 @@ internal class Azoramoon(context: MangaLoaderContext) :
 			}
 		}
 
-		val json = webClient.httpGet(url).parseJson()
-		return parseMangaList(json)
+		val response = webClient.httpGet(url)
+		val body = response.body.string()
+
+		// Try to parse as JSONArray first (API returns direct array)
+		val jsonArray = try {
+			JSONArray(body)
+		} catch (e: Exception) {
+			// If that fails, try as JSONObject and extract array
+			val jsonObject = JSONObject(body)
+			when {
+				jsonObject.has("data") -> jsonObject.getJSONArray("data")
+				jsonObject.has("results") -> jsonObject.getJSONArray("results")
+				else -> JSONArray()
+			}
+		}
+
+		return parseMangaList(jsonArray)
 	}
 
 	private fun parseMangaList(json: JSONArray): List<Manga> {
@@ -104,13 +119,15 @@ internal class Azoramoon(context: MangaLoaderContext) :
 			// Parse genres
 			val genresArray = obj.optJSONArray("genres")
 			val tags = if (genresArray != null) {
-				(0 until genresArray.length()).mapNotNullToSet { idx ->
-					val genre = genresArray.getJSONObject(idx)
-					MangaTag(
-						key = genre.getInt("id").toString(),
-						title = genre.getString("name"),
-						source = source,
-					)
+				buildSet {
+					for (idx in 0 until genresArray.length()) {
+						val genre = genresArray.getJSONObject(idx)
+						add(MangaTag(
+							key = genre.getInt("id").toString(),
+							title = genre.getString("name"),
+							source = source,
+						))
+					}
 				}
 			} else {
 				emptySet()
