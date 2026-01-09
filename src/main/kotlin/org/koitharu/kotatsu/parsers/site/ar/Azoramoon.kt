@@ -295,7 +295,7 @@ internal class Azoramoon(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(manga.url.toAbsoluteUrl(domain)).parseHtml()
 		val chaptersDeferred = async { loadChapters(manga.url) }
 
-		val coverUrl = doc.selectFirst("img[alt*='${manga.title}'], section img")?.src() ?: manga.coverUrl
+		val coverUrl = doc.selectFirst("section img")?.src() ?: manga.coverUrl
 
 		// Extract rating
 		val ratingText = doc.selectFirst("div:contains(التقييم) + div, span:contains(Rating)")?.text()
@@ -348,8 +348,16 @@ internal class Azoramoon(context: MangaLoaderContext) :
 		val chapterLinks = doc.select("a[href*='/chapter-']")
 		println("[Azoramoon] Found ${chapterLinks.size} chapter links")
 
-		return chapterLinks.mapIndexedNotNull { i, a ->
+		// Use a map to deduplicate by URL
+		val chaptersMap = mutableMapOf<String, MangaChapter>()
+
+		chapterLinks.forEachIndexed { i, a ->
 			val url = a.attrAsRelativeUrl("href")
+
+			// Skip if we already have this chapter
+			if (chaptersMap.containsKey(url)) {
+				return@forEachIndexed
+			}
 
 			// Extract chapter number from URL (e.g., /series/back-to-spring/chapter-61 -> 61)
 			val chapterNumber = url.substringAfterLast("/chapter-")
@@ -367,7 +375,7 @@ internal class Azoramoon(context: MangaLoaderContext) :
 
 			println("[Azoramoon] Chapter: $chapterTitle (number: $chapterNumber, url: $url)")
 
-			MangaChapter(
+			chaptersMap[url] = MangaChapter(
 				id = generateUid(url),
 				title = chapterTitle,
 				number = chapterNumber,
@@ -378,7 +386,9 @@ internal class Azoramoon(context: MangaLoaderContext) :
 				branch = null,
 				source = source,
 			)
-		}.sortedBy { it.number }
+		}
+
+		return chaptersMap.values.sortedBy { it.number }
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
