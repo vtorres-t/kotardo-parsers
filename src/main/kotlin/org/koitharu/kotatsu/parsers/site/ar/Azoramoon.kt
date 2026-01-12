@@ -359,37 +359,45 @@ internal class Azoramoon(context: MangaLoaderContext) :
 		val fullUrl = chapter.url.toAbsoluteUrl(domain)
 		val doc = webClient.httpGet(fullUrl).parseHtml()
 
-		// Try to extract images from JSON data in script tag
+		// Extract images from JSON data in script tag
 		// There are multiple script tags with __next_f.push, we need to find the one with images
 		val scripts = doc.select("script:containsData(__next_f.push)")
+		println("[Azoramoon] Found ${scripts.size} script tags")
 
 		for ((index, script) in scripts.withIndex()) {
 			val scriptContent = script.html()
 
 			// Check if this script contains the images array
-			// In the escaped JSON, it appears as \"images\":
-			if (!scriptContent.contains("\\\"images\\\"")) {
+			// After Jsoup parses, one level of escaping is removed, so we look for \"images\":
+			val hasImages = scriptContent.contains("\"images\":")
+			println("[Azoramoon] Script $index: length=${scriptContent.length}, contains 'images'=$hasImages")
+
+			if (!hasImages) {
 				continue
 			}
 
-			// Find the "images": array in the JSON - use a more robust pattern
+			println("[Azoramoon] Script $index snippet: ${scriptContent.take(500)}")
+
+			// Find the "images": array in the JSON
 			// The images array ends with ],"team" so we use that as our endpoint
-			// In escaped JSON, we need to match \\\"images\\\":\\[...\\],\\\"team\\\"
-			val imagesMatch = Regex("""\\\"images\\\":\\\[(.*?)\\\],\\\"team\\\"""").find(scriptContent)
+			// Pattern: "images":[...],"team"
+			val imagesMatch = Regex(""""images":\[(.*?)\],"team"""").find(scriptContent)
+			println("[Azoramoon] Script $index regex match: ${imagesMatch != null}")
 
 			if (imagesMatch != null) {
-				// Unescape the JSON string (remove backslashes from escaped quotes, etc.)
-				val escapedJson = imagesMatch.groupValues[1]
-				val unescapedJson = "[${escapedJson.replace("\\\"", "\"")}]"
+				// The matched content is already unescaped by Jsoup
+				val imagesJson = "[${imagesMatch.groupValues[1]}]"
+				println("[Azoramoon] Extracted JSON length: ${imagesJson.length}")
+				println("[Azoramoon] First 300 chars of JSON: ${imagesJson.take(300)}")
 
 				try {
-					val imagesArray = JSONArray(unescapedJson)
+					val imagesArray = JSONArray(imagesJson)
+					println("[Azoramoon] Parsed ${imagesArray.length()} images from JSON")
 					val pages = mutableListOf<MangaPage>()
 
 					for (i in 0 until imagesArray.length()) {
 						val imageObj = imagesArray.getJSONObject(i)
 						val imageUrl = imageObj.optString("url")
-						val order = imageObj.optInt("order", i + 1)
 
 						if (imageUrl.isNotBlank()) {
 							pages.add(
@@ -403,32 +411,21 @@ internal class Azoramoon(context: MangaLoaderContext) :
 						}
 					}
 
+					println("[Azoramoon] Returning ${pages.size} pages")
 					if (pages.isNotEmpty()) {
-						return pages.sortedBy { it.url }
+						return pages
 					}
 				} catch (e: Exception) {
+					println("[Azoramoon] Error parsing JSON: ${e.message}")
+					e.printStackTrace()
 					// Try next script tag
+					continue
 				}
 			}
 		}
 
-		// Fallback: Try HTML parsing
-		return doc.select("div.comic-images-wrapper img, div.chapter-images img, img[data-index]")
-			.mapNotNull { img ->
-				val imageUrl = img.attr("data-src").ifEmpty { img.src() }
-				if (imageUrl?.isNotBlank() == true && !imageUrl.startsWith("data:image")) {
-					val finalUrl = imageUrl.toRelativeUrl(domain)
-					MangaPage(
-						id = generateUid(finalUrl),
-						url = finalUrl,
-						preview = null,
-						source = source,
-					)
-				} else {
-					null
-				}
-			}
-			.distinct()
+		println("[Azoramoon] Failed to find images in any script tag")
+		throw Exception("Failed to extract chapter images from page")
 	}
 
 }
