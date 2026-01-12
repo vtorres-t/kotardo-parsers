@@ -365,7 +365,8 @@ internal class Azoramoon(context: MangaLoaderContext) :
 		println("[Azoramoon] Found ${scripts.size} script tags")
 
 		for ((index, script) in scripts.withIndex()) {
-			val scriptContent = script.html()
+			// Use .data() instead of .html() for script tag content
+			val scriptContent = script.data()
 
 			// Check if this script contains the images array
 			// After Jsoup parses, one level of escaping is removed, so we look for \"images\":
