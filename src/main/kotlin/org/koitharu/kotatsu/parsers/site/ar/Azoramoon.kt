@@ -355,88 +355,59 @@ internal class Azoramoon(context: MangaLoaderContext) :
 		return chaptersMap.values.sortedBy { it.number }
 	}
 
-	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		val fullUrl = chapter.url.toAbsoluteUrl(domain)
-		val doc = webClient.httpGet(fullUrl).parseHtml()
+    override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
+        val fullUrl = chapter.url.toAbsoluteUrl(domain)
+        val doc = webClient.httpGet(fullUrl).parseHtml()
 
-		val scripts = doc.select("script:containsData(__next_f.push)")
-		println("[Azoramoon] Found ${scripts.size} script tags")
+        val scripts = doc.select("script:containsData(__next_f.push)")
 
-		for ((index, script) in scripts.withIndex()) {
-			val scriptContent = script.data()
+        for (script in scripts) {
+            val scriptContent = script.data()
 
-			val hasImages = scriptContent.contains("\\\"images\\\":")
-			println("[Azoramoon] Script $index: length=${scriptContent.length}, contains 'images'=$hasImages")
+            if (!scriptContent.contains("\\\"images\\\":")) {
+                continue
+            }
 
-			if (!hasImages) {
-				continue
-			}
+            val imagesMatch = Regex("""\\\"images\\\":\[([\s\S]*?)\],\\\"""").find(scriptContent)
 
-			println("[Azoramoon] Script $index snippet: ${scriptContent.take(500)}")
+            if (imagesMatch != null) {
+                val escapedImagesJson = "[${imagesMatch.groupValues[1]}]"
 
-			// Find where "images" appears and show context around it
-			val imagesIndex = scriptContent.indexOf("\\\"images\\\":")
-			if (imagesIndex != -1) {
-				val contextStart = maxOf(0, imagesIndex - 50)
-				val contextEnd = minOf(scriptContent.length, imagesIndex + 200)
-				println("[Azoramoon] Context around images: ${scriptContent.substring(contextStart, contextEnd)}")
+                val imagesJson = escapedImagesJson
+                    .replace("\\\\", "\u0000")
+                    .replace("\\\"", "\"")
+                    .replace("\u0000", "\\")
 
-				// Show exact characters with escaping
-				val debugContext = scriptContent.substring(imagesIndex, minOf(scriptContent.length, imagesIndex + 50))
-				println("[Azoramoon] Raw chars after images: ${debugContext.map { it.code.toString(16) }.joinToString(" ")}")
-			}
+                try {
+                    val imagesArray = JSONArray(imagesJson)
+                    val pages = mutableListOf<MangaPage>()
 
-			// The actual content has single backslash escaping: \"images\":
-			// In raw string, \" is backslash + quote (not an escaped quote)
-			val imagesMatch = Regex("""\"images\":\[([\s\S]*?)\],\"team\"""").find(scriptContent)
-			println("[Azoramoon] Script $index regex match: ${imagesMatch != null}")
+                    for (i in 0 until imagesArray.length()) {
+                        val imageObj = imagesArray.getJSONObject(i)
+                        val imageUrl = imageObj.optString("url")
 
-			if (imagesMatch != null) {
-				val escapedImagesJson = "[${imagesMatch.groupValues[1]}]"
+                        if (imageUrl.isNotBlank()) {
+                            pages.add(
+                                MangaPage(
+                                    id = generateUid(imageUrl),
+                                    url = imageUrl,
+                                    preview = null,
+                                    source = source,
+                                )
+                            )
+                        }
+                    }
 
-				val imagesJson = escapedImagesJson
-					.replace("\\\\", "\u0000")
-					.replace("\\\"", "\"")
-					.replace("\u0000", "\\")
+                    if (pages.isNotEmpty()) {
+                        return pages
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    continue
+                }
+            }
+        }
 
-				println("[Azoramoon] Extracted JSON length: ${imagesJson.length}")
-				println("[Azoramoon] First 300 chars of JSON: ${imagesJson.take(300)}")
-
-				try {
-					val imagesArray = JSONArray(imagesJson)
-					println("[Azoramoon] Parsed ${imagesArray.length()} images from JSON")
-					val pages = mutableListOf<MangaPage>()
-
-					for (i in 0 until imagesArray.length()) {
-						val imageObj = imagesArray.getJSONObject(i)
-						val imageUrl = imageObj.optString("url")
-
-						if (imageUrl.isNotBlank()) {
-							pages.add(
-								MangaPage(
-									id = generateUid(imageUrl),
-									url = imageUrl,
-									preview = null,
-									source = source,
-								)
-							)
-						}
-					}
-
-					println("[Azoramoon] Returning ${pages.size} pages")
-					if (pages.isNotEmpty()) {
-						return pages
-					}
-				} catch (e: Exception) {
-					println("[Azoramoon] Error parsing JSON: ${e.message}")
-					e.printStackTrace()
-					continue
-				}
-			}
-		}
-
-		println("[Azoramoon] Failed to find images in any script tag")
-		throw Exception("Failed to extract chapter images from page")
-	}
-
+        throw Exception("Failed to extract chapter images from page")
+    }
 }
