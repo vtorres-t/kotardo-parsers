@@ -555,20 +555,23 @@ internal class MangagoParser(context: MangaLoaderContext) :
         try {
             val keyLocations = KEY_LOCATION_REGEX.findAll(js)
                 .map { it.groupValues[1].toInt() }
+                .distinct()
+                .sorted()
                 .toList()
 
-            println("[MANGAGO] Unscramble: found ${keyLocations.size} key locations")
+            println("[MANGAGO] Unscramble: found ${keyLocations.size} unique key locations")
             println("[MANGAGO] Unscramble: original image list length = ${imgList.length}")
             println("[MANGAGO] Unscramble: keyLocations = $keyLocations")
 
-            val unscrambleKey = keyLocations.map {
-                imgList[it].toString().toInt()
+            val unscrambleKey = keyLocations.map { loc ->
+                imgList[loc].toString().toInt()
             }.toList()
 
             println("[MANGAGO] Unscramble: extracted key = $unscrambleKey")
 
-            keyLocations.forEachIndexed { idx, it ->
-                imgList = imgList.removeRange(it - idx..it - idx)
+            // Remove characters from highest to lowest index to avoid index shift
+            keyLocations.sortedDescending().forEach { loc ->
+                imgList = imgList.removeRange(loc..loc)
             }
 
             println("[MANGAGO] Unscramble: after removing chars, length = ${imgList.length}")
