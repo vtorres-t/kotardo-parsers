@@ -438,75 +438,11 @@ internal class MangagoParser(context: MangaLoaderContext) :
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        println("[MANGAGO] Decrypted ${images.size} images (raw)")
-
-        // Try to filter only URLs that are clearly invalid (have underscores in domain)
-        val validImages = images.filter { url ->
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                println("[MANGAGO] Invalid: missing protocol: $url")
-                false
-            } else {
-                val host = try {
-                    java.net.URI(url).host
-                } catch (e: Exception) {
-                    println("[MANGAGO] Invalid: parsing failed: $url")
-                    return@filter false
-                }
-
-                if (host == null || host.isBlank()) {
-                    println("[MANGAGO] Invalid: empty host: $url")
-                    false
-                } else if (host.contains("_")) {
-                    println("[MANGAGO] Invalid: underscore in domain: $host in $url")
-                    false
-                } else {
-                    true
-                }
-            }
-        }
-
-        if (validImages.isEmpty()) {
-            println("[MANGAGO] WARNING: All images were filtered, returning raw list")
-            return images
-        }
-
-        println("[MANGAGO] Returning ${validImages.size} valid images from chapter")
-        return validImages
+        println("[MANGAGO] Decrypted ${images.size} images")
+        return images
     }
 
-    private fun isValidImageUrl(url: String): Boolean {
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            return false
-        }
 
-        try {
-            val uri = java.net.URI(url)
-            val host = uri.host ?: return false
-
-            // Check for invalid domain names (underscores are not allowed in domain names)
-            if (host.contains("_")) {
-                println("[MANGAGO] Filtering invalid URL with underscore in domain: $url")
-                return false
-            }
-
-            // Check for empty host
-            if (host.isBlank()) {
-                return false
-            }
-
-            // Check for invalid characters in host
-            val validHostChars = Regex("""^[a-zA-Z0-9.-]+$""")
-            if (!validHostChars.matches(host)) {
-                println("[MANGAGO] Filtering invalid URL with invalid characters in domain: $url")
-                return false
-            }
-
-            return true
-        } catch (e: Exception) {
-            println("[MANGAGO] Filtering invalid URL (parsing failed): $url")
-            return false
-        }
-    }
 
     private suspend fun getDeobfuscatedJS(doc: Document): String? {
         val chapterJsUrl = doc.select("script[src*=chapter.js]").firstOrNull()?.absUrl("src") ?: return null
