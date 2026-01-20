@@ -12,7 +12,6 @@ import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNull
-import org.koitharu.kotatsu.parsers.util.json.mapJSONToSet
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -22,7 +21,7 @@ internal class Prochan(context: MangaLoaderContext) : PagedMangaParser(
 	source = MangaParserSource.PROCHAN,
 	pageSize = 18,
 ) {
-	override val configKeyDomain = ConfigKey.Domain("prochan.pro")
+	override val configKeyDomain = ConfigKey.Domain("prochan.net")
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,
@@ -201,10 +200,12 @@ internal class Prochan(context: MangaLoaderContext) : PagedMangaParser(
 		for (script in scripts) {
 			val content = script.data()
 
-			val appImagesMatch = Regex("\"appImages\"\\s*:\\s*(\\[[^\\]]+\\])").find(content)
+			val appImagesMatch = Regex("\"appImages\"\\s*:\\s*(\\[[^\\]]*\\])").find(content)
 			if (appImagesMatch != null) {
 				return try {
-					val appImagesArray = JSONArray(appImagesMatch.groupValues[1])
+					val appImagesArrayStr = appImagesMatch.groupValues[1]
+					val appImagesArray = JSONArray(appImagesArrayStr)
+
 					appImagesArray.mapJSONNotNull { imageObj ->
 						if (imageObj is JSONObject) {
 							val desktopUrl = imageObj.optString("desktop")
