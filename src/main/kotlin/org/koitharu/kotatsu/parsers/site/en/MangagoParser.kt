@@ -314,7 +314,6 @@ internal class MangagoParser(context: MangaLoaderContext) :
         val pageDropdown = doc.select("div.controls ul#dropdown-menu-page")
         if (pageDropdown.isNotEmpty()) {
             val pagesCount = pageDropdown.select("li").size
-            println("[MANGAGO] getPages: Mobile mode detected, pagesCount=$pagesCount")
 
             // Detect URL format and build batch URL generator
             // Format 1: .../chapter/xxx/yyy/1/ -> .../chapter/xxx/yyy/6/
@@ -335,17 +334,14 @@ internal class MangagoParser(context: MangaLoaderContext) :
                 // Format: .../pg-1/ -> extract base and use pg-N
                 baseUrl = cleanUrl.substringBeforeLast("/")
                 buildBatchUrl = { batchNum -> "$baseUrl/pg-$batchNum/" }
-                println("[MANGAGO] getPages: Using pg-N format, baseUrl=$baseUrl")
             } else if (isPageNumber) {
                 // URL ends with a small page number, replace it
                 baseUrl = cleanUrl.substringBeforeLast("/")
                 buildBatchUrl = { batchNum -> "$baseUrl/$batchNum/" }
-                println("[MANGAGO] getPages: Using /N/ format (replacing page $pageNumber), baseUrl=$baseUrl")
             } else {
                 // No page number in URL (last segment is chapter ID or text), append /N/
                 baseUrl = cleanUrl
                 buildBatchUrl = { batchNum -> "$baseUrl/$batchNum/" }
-                println("[MANGAGO] getPages: Appending /N/ format, baseUrl=$baseUrl")
             }
 
             // Mobile mode loads images in batches of 5
@@ -360,15 +356,10 @@ internal class MangagoParser(context: MangaLoaderContext) :
 
             while (allImages.size < pagesCount) {
                 val batchUrl = buildBatchUrl(batchStart)
-                println("[MANGAGO] getPages: Fetching batch at $batchUrl")
-
                 val batchDoc = if (batchStart == 1) doc else webClient.httpGet(batchUrl).parseHtml()
                 val batchImages = decryptImageList(batchDoc, batchUrl)
 
-                println("[MANGAGO] getPages: Batch $batchStart returned ${batchImages.size} images")
-
                 if (batchImages.isEmpty()) {
-                    println("[MANGAGO] getPages: Empty batch, stopping")
                     break
                 }
 
@@ -377,12 +368,9 @@ internal class MangagoParser(context: MangaLoaderContext) :
 
                 // Safety check to prevent infinite loops
                 if (batchStart > pagesCount + batchSize) {
-                    println("[MANGAGO] getPages: Safety break - batchStart=$batchStart exceeds expected")
                     break
                 }
             }
-
-            println("[MANGAGO] getPages: Total images collected: ${allImages.size}")
 
             // Return pages with resolved image URLs
             return allImages.take(pagesCount).mapIndexed { index, imageUrl ->
@@ -466,28 +454,12 @@ internal class MangagoParser(context: MangaLoaderContext) :
         val decryptedBytes = cipher.doFinal(imgsrcs)
 
         var imageList = String(decryptedBytes, Charsets.UTF_8).trimEnd('\u0000')
-
-        println("[MANGAGO] decryptImageList: raw decrypted length=${imageList.length}")
-        println("[MANGAGO] decryptImageList: raw first 200 chars: ${imageList.take(200)}")
-
         imageList = unscrambleImageList(imageList, deobfChapterJs)
 
-        println("[MANGAGO] decryptImageList: after unscramble length=${imageList.length}")
-        println("[MANGAGO] decryptImageList: after unscramble first 200 chars: ${imageList.take(200)}")
-
-        val result = imageList.split(",")
+        return imageList.split(",")
             .map { it.trim() }
             .filter { it.isNotBlank() }
-
-        println("[MANGAGO] decryptImageList: final image count=${result.size}")
-        result.forEachIndexed { index, url ->
-            println("[MANGAGO] decryptImageList: [$index] ${url.take(80)}")
-        }
-
-        return result
     }
-
-
 
     private suspend fun getDeobfuscatedJS(doc: Document): String? {
         val chapterJsUrl = doc.select("script[src*=chapter.js]").firstOrNull()?.absUrl("src") ?: return null
