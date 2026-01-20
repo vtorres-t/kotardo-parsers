@@ -6,6 +6,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -18,6 +19,7 @@ import org.koitharu.kotatsu.parsers.util.json.*
 import java.util.*
 import java.util.concurrent.TimeUnit
 
+@Broken
 @MangaSourceParser("BATO", "Bato")
 internal class BatoToV4Parser(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.BATO, 36) {
