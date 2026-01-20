@@ -22,7 +22,7 @@ internal class Prochan(context: MangaLoaderContext) : PagedMangaParser(
 	source = MangaParserSource.PROCHAN,
 	pageSize = 18,
 ) {
-	override val configKeyDomain = ConfigKey.Domain("prochan.net")
+	override val configKeyDomain = ConfigKey.Domain("prochan.pro")
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,
