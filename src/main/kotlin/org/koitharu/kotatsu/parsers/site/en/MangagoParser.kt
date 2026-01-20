@@ -310,14 +310,14 @@ internal class MangagoParser(context: MangaLoaderContext) :
         val doc = webClient.httpGet(fullUrl).parseHtml()
 
         // Check for mobile mode FIRST (like Mihon does)
-        // Mobile mode has a page dropdown - each page is fetched separately
+        // Mobile mode has a page dropdown - images load 5 at a time per batch
         val pageDropdown = doc.select("div.controls ul#dropdown-menu-page")
         if (pageDropdown.isNotEmpty()) {
             val pagesCount = pageDropdown.select("li").size
-            // Use fullUrl as base since doc.location() may be empty
-            // Remove trailing slash and any existing page number
+            println("[MANGAGO] getPages: Mobile mode detected, pagesCount=$pagesCount")
+
+            // Remove trailing slash and any existing page number from URL
             val baseUrl = fullUrl.removeSuffix("/").let { url ->
-                // If URL ends with a number (page number), remove it
                 val lastSegment = url.substringAfterLast("/")
                 if (lastSegment.toIntOrNull() != null) {
                     url.substringBeforeLast("/")
@@ -325,10 +325,55 @@ internal class MangagoParser(context: MangaLoaderContext) :
                     url
                 }
             }
-            return (1..pagesCount).map { pageNum ->
+
+            // Mobile mode loads images in batches of 5
+            // We need to fetch each batch URL to get all images
+            val batchSize = 5
+            val allImages = mutableListOf<String>()
+            var batchStart = 1
+
+            // Get JS and cols from the first document for descrambling
+            val js = getDeobfuscatedJS(doc)
+            val cols = getColsFromDoc(doc) ?: ""
+
+            while (allImages.size < pagesCount) {
+                val batchUrl = "$baseUrl/$batchStart/"
+                println("[MANGAGO] getPages: Fetching batch at $batchUrl")
+
+                val batchDoc = if (batchStart == 1) doc else webClient.httpGet(batchUrl).parseHtml()
+                val batchImages = decryptImageList(batchDoc, batchUrl)
+
+                println("[MANGAGO] getPages: Batch $batchStart returned ${batchImages.size} images")
+
+                if (batchImages.isEmpty()) {
+                    println("[MANGAGO] getPages: Empty batch, stopping")
+                    break
+                }
+
+                allImages.addAll(batchImages)
+                batchStart += batchSize
+
+                // Safety check to prevent infinite loops
+                if (batchStart > pagesCount + batchSize) {
+                    println("[MANGAGO] getPages: Safety break - batchStart=$batchStart exceeds expected")
+                    break
+                }
+            }
+
+            println("[MANGAGO] getPages: Total images collected: ${allImages.size}")
+
+            // Return pages with resolved image URLs
+            return allImages.take(pagesCount).mapIndexed { index, imageUrl ->
+                val url = if (imageUrl.contains("cspiclink") && js != null) {
+                    val descramblingKey = getDescramblingKey(js, imageUrl)
+                    "$imageUrl#desckey=$descramblingKey&cols=$cols"
+                } else {
+                    imageUrl
+                }
+
                 MangaPage(
-                    id = generateUid("$baseUrl/$pageNum"),
-                    url = "$baseUrl/$pageNum/",
+                    id = generateUid("$fullUrl-$index"),
+                    url = url,
                     preview = null,
                     source = source,
                 )
@@ -368,62 +413,11 @@ internal class MangagoParser(context: MangaLoaderContext) :
     }
 
     override suspend fun getPageUrl(page: MangaPage): String {
-        // If the URL doesn't end with / or contains fragment, it's likely already an image URL (or resolved)
-        if (!page.url.endsWith("/") || page.url.contains("#desckey=")) {
-            if (page.url.isBlank()) {
-                throw Exception("Page URL is blank in getPageUrl")
-            }
-            return page.url
+        // URLs are already resolved in getPages() for both desktop and mobile modes
+        if (page.url.isBlank()) {
+            throw Exception("Page URL is blank in getPageUrl")
         }
-
-        // It is an HTML page URL (Mobile mode). Fetch and resolve.
-        // Extract page number from URL (format: .../chapter/xxx/yyy/pageNum/)
-        val cleanUrl = page.url.removeSuffix("/")
-        val pageNumber = cleanUrl.substringAfterLast("/").toIntOrNull()
-            ?: throw Exception("Could not parse page number from URL: ${page.url}")
-
-        // Mobile mode loads images in batches of 5
-        // Page 1-5 are in batch 1, pages 6-10 in batch 2, etc.
-        val batchSize = 5
-        val batchStart = ((pageNumber - 1) / batchSize) * batchSize + 1
-        val indexInBatch = (pageNumber - 1) % batchSize
-
-        // Build URL for the batch start page to fetch images for this batch
-        val baseUrl = cleanUrl.substringBeforeLast("/")
-        val batchUrl = "$baseUrl/$batchStart/"
-
-        val doc = webClient.httpGet(batchUrl).parseHtml()
-
-        // Decrypt images from this batch page
-        val images = decryptImageList(doc, batchUrl)
-
-        println("[MANGAGO] getPageUrl: page.url=${page.url}")
-        println("[MANGAGO] getPageUrl: pageNumber=$pageNumber, batchStart=$batchStart, indexInBatch=$indexInBatch")
-        println("[MANGAGO] getPageUrl: batchUrl=$batchUrl, images.size=${images.size}")
-
-        // Get the correct image from the batch
-        val imageUrl = if (indexInBatch < images.size) {
-            println("[MANGAGO] getPageUrl: using index $indexInBatch")
-            images[indexInBatch]
-        } else {
-            throw Exception("Image not found for page $pageNumber (batch start: $batchStart, index: $indexInBatch, images count: ${images.size})")
-        }
-
-        println("[MANGAGO] getPageUrl: final imageUrl=${imageUrl.take(100)}")
-
-        if (imageUrl.isBlank()) {
-            throw Exception("Decrypted image URL is blank for page $pageNumber")
-        }
-
-        // Add fragment if needed
-        if (imageUrl.contains("cspiclink")) {
-            val js = getDeobfuscatedJS(doc) ?: throw Exception("Could not get JS")
-            val cols = getColsFromDoc(doc) ?: ""
-            val descramblingKey = getDescramblingKey(js, imageUrl)
-            return "$imageUrl#desckey=$descramblingKey&cols=$cols"
-        }
-
-        return imageUrl
+        return page.url
     }
 
     override suspend fun getRelatedManga(seed: Manga): List<Manga> = emptyList()
