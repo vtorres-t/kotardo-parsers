@@ -185,7 +185,7 @@ internal abstract class NineMangaParser(
             .build()
 
         val response = webClient.httpGet(url, headers)
-        val doc = followJavaScriptRedirect(response, headers)
+        val doc = followJavaScriptRedirect(response, headers, chapter.url)
 
         // Try to extract images from JavaScript first (for redirected pages)
         val jsImageUrls = extractImagesFromJavaScript(doc)
@@ -230,8 +230,9 @@ internal abstract class NineMangaParser(
                 doc // Use already loaded first page
             } else {
                 try {
+                    val pagePath = pageUrl.toHttpUrl().encodedPath
                     val pageResponse = webClient.httpGet(pageUrl, headers)
-                    followJavaScriptRedirect(pageResponse, headers)
+                    followJavaScriptRedirect(pageResponse, headers, pagePath)
                 } catch (e: Exception) {
                     continue // Skip failed pages
                 }
@@ -275,8 +276,9 @@ internal abstract class NineMangaParser(
                         }
 
                         try {
+                            val pagePath = if (pageUrl.startsWith("/")) pageUrl else fullPageUrl.toHttpUrl().encodedPath
                             val pageResponse = webClient.httpGet(fullPageUrl, headers)
-                            val pageDoc = followJavaScriptRedirect(pageResponse, headers)
+                            val pageDoc = followJavaScriptRedirect(pageResponse, headers, pagePath)
 
                             // Try JavaScript extraction first
                             val jsImageUrls = extractImagesFromJavaScript(pageDoc)
@@ -337,56 +339,32 @@ internal abstract class NineMangaParser(
             .build()
 
         val response = webClient.httpGet(url, headers)
-        val doc = followJavaScriptRedirect(response, headers)
+        val doc = followJavaScriptRedirect(response, headers, page.url)
 
         val root = doc.body()
         return root.selectFirst("img.manga_pic")?.attrAsAbsoluteUrl("src")
             ?: root.selectFirstOrThrow("a.pic_download").attrAsAbsoluteUrl("href")
     }
 
-    private suspend fun followJavaScriptRedirect(response: okhttp3.Response, headers: okhttp3.Headers): Document {
-        var doc = response.parseHtml()
-        var currentUrl = response.request.url.toString()
+    private suspend fun followJavaScriptRedirect(response: okhttp3.Response, headers: okhttp3.Headers, originalPath: String): Document {
+        val responseHost = response.request.url.host
 
-        // Follow redirects until we get back to ninemanga
-        repeat(5) { // Max 5 redirect hops to avoid infinite loops
-            val currentHost = currentUrl.toHttpUrl().host
-            if (currentHost.contains("ninemanga", ignoreCase = true)) {
-                return doc // We're on ninemanga, done
-            }
-
-            // Look for source selection buttons that link directly to ninemanga domain
-            val sourceLink = doc.select("a.vision-button, a.cool-blue, a[href*=ninemanga.com]")
-                .firstOrNull { link ->
-                    val href = link.attr("href")
-                    href.contains("ninemanga.com", ignoreCase = true)
-                }?.attr("href")
-
-            if (sourceLink != null) {
-                // Clean up the URL (remove &amp; and replace with &)
-                var cleanUrl = sourceLink.replace("&amp;", "&")
-
-                // If it's a relative URL, make it absolute using the ninemanga domain
-                if (!cleanUrl.startsWith("http")) {
-                    cleanUrl = "https://$domain$cleanUrl"
-                }
-
-                // Follow the source redirect
-                val sourceResponse = webClient.httpGet(cleanUrl, headers)
-                doc = sourceResponse.parseHtml()
-                currentUrl = sourceResponse.request.url.toString()
-            } else {
-                // No direct ninemanga link found, throw exception
-                throw ParseException("Redirected to wrong domain: $currentHost", currentUrl)
-            }
+        // If we're already on ninemanga, just parse and return
+        if (responseHost.contains("ninemanga", ignoreCase = true)) {
+            return response.parseHtml()
         }
 
-        // Check final URL after redirect loop
-        if (!currentUrl.toHttpUrl().host.contains("ninemanga", ignoreCase = true)) {
-            throw ParseException("Failed to redirect back to ninemanga", currentUrl)
+        // We got redirected to an ad site - just fetch the original path from the correct domain
+        val correctUrl = "https://$domain$originalPath"
+        val directResponse = webClient.httpGet(correctUrl, headers)
+
+        // Check if this also redirects away
+        val directHost = directResponse.request.url.host
+        if (!directHost.contains("ninemanga", ignoreCase = true)) {
+            throw ParseException("Redirected to wrong domain: $directHost", correctUrl)
         }
 
-        return doc
+        return directResponse.parseHtml()
     }
 
     private fun extractImagesFromJavaScript(doc: Document): List<String>? {
