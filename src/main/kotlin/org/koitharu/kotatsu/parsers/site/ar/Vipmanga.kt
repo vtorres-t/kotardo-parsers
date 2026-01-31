@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.ar
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
@@ -286,7 +287,7 @@ internal class Vipmanga(context: MangaLoaderContext) :
 					if (json.optBoolean("success", false)) {
 						json.optJSONArray("data")?.let { data ->
 							parseChapters(data)
-						}
+						} ?: emptyList()
 					} else {
 						emptyList()
 					}
