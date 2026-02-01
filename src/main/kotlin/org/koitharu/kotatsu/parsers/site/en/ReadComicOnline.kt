@@ -4,6 +4,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -33,6 +34,7 @@ import java.text.SimpleDateFormat
 import java.util.EnumSet
 import java.util.Locale
 
+@Broken("Need to work on bypass protection for images")
 @MangaSourceParser("READCOMICONLINE", "ReadComicOnline", "en", ContentType.COMICS)
 internal class ReadComicOnline(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.READCOMICONLINE, 36) {

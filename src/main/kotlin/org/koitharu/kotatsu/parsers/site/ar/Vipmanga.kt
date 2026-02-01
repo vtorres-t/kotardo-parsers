@@ -5,6 +5,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
+import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -16,6 +17,7 @@ import org.koitharu.kotatsu.parsers.util.json.mapJSONToSet
 import java.text.SimpleDateFormat
 import java.util.*
 
+@Broken("Need to wait sources get more stable")
 @MangaSourceParser("CROWSCANS", "VipManga", "ar")
 internal class Vipmanga(context: MangaLoaderContext) :
 	PagedMangaParser(context, MangaParserSource.CROWSCANS, 15) {
