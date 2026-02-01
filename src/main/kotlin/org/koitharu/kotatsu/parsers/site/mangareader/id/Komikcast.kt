@@ -71,7 +71,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 
 				filter.tags.takeIf { it.isNotEmpty() }?.let { tags ->
 					append("&genreIds=")
-					append(tags.joinToString(",") { it.key })
+					append(tags.joinToString(",") { it.title })
 				}
 
 				if (filter.states.isNotEmpty()) {
@@ -104,7 +104,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 
 				filter.tags.takeIf { it.isNotEmpty() }?.let { tags ->
 					append("&genreIds=")
-					append(tags.joinToString(",") { it.key })
+					append(tags.joinToString(",") { it.title })
 				}
 			}
 		}
@@ -125,6 +125,16 @@ internal class Komikcast(context: MangaLoaderContext) :
 		val json = webClient.httpGet(url).body?.string() ?: throw Exception("Failed to fetch manga details")
 		val seriesData = parseSeriesJson(json)
 
+		val chaptersUrl = buildString {
+			append("https://")
+			append(domain)
+			append("/series/")
+			append(slug)
+			append("/chapters")
+		}
+		val chaptersJson = webClient.httpGet(chaptersUrl).body?.string() ?: ""
+		val chapters = parseChaptersJson(chaptersJson, slug)
+
 		return manga.copy(
 			title = seriesData.title,
 			description = seriesData.synopsis,
@@ -144,20 +154,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 			}.toSet(),
 			coverUrl = seriesData.coverImage,
 			rating = if (seriesData.rating > 0) seriesData.rating / 10f else RATING_UNKNOWN,
-			chapters = seriesData.chapters?.mapIndexedNotNull { index, chapterData ->
-				val chapterUrl = "/series/$slug/chapters/${chapterData.index}"
-				MangaChapter(
-					id = generateUid(chapterUrl),
-					title = chapterData.title,
-					url = chapterUrl,
-					number = chapterData.index.toFloat(),
-					volume = 0,
-					scanlator = null,
-					uploadDate = 0L,
-					branch = null,
-					source = source,
-				)
-			}?.reversed() ?: emptyList(),
+			chapters = chapters,
 		)
 	}
 
@@ -303,23 +300,6 @@ internal class Komikcast(context: MangaLoaderContext) :
 			}
 		}
 
-		val chapters = if (dataObj.has("chapters") && !dataObj.isNull("chapters")) {
-			val chaptersArray = dataObj.getJSONArray("chapters")
-			val chapterList = mutableListOf<ChapterData>()
-			for (i in 0 until chaptersArray.length()) {
-				val chapterObj = chaptersArray.getJSONObject(i)
-				val chapterData = chapterObj.getJSONObject("data")
-				chapterList.add(ChapterData(
-					index = chapterData.getInt("index"),
-					title = chapterData.optString("title"),
-					createdAt = chapterData.optString("createdAt"),
-				))
-			}
-			chapterList
-		} else {
-			null
-		}
-
 		return SeriesData(
 			title = dataObj.getString("title"),
 			synopsis = dataObj.optString("synopsis"),
@@ -328,8 +308,38 @@ internal class Komikcast(context: MangaLoaderContext) :
 			coverImage = dataObj.getString("coverImage"),
 			rating = if (dataObj.has("rating")) dataObj.getDouble("rating").toFloat() else 0f,
 			genres = genres,
-			chapters = chapters,
 		)
+	}
+
+	private fun parseChaptersJson(json: String, slug: String): List<MangaChapter> {
+		val result = mutableListOf<MangaChapter>()
+		try {
+			val responseObj = org.json.JSONObject(json)
+			val dataArray = responseObj.getJSONArray("data")
+
+			for (i in 0 until dataArray.length()) {
+				val chapterObj = dataArray.getJSONObject(i)
+				val chapterData = chapterObj.getJSONObject("data")
+				val chapterIndex = chapterData.getInt("index")
+				val chapterUrl = "/series/$slug/chapters/$chapterIndex"
+
+				val chapter = MangaChapter(
+					id = generateUid(chapterUrl),
+					title = chapterData.optString("title"),
+					url = chapterUrl,
+					number = chapterIndex.toFloat(),
+					volume = 0,
+					scanlator = null,
+					uploadDate = parseChapterDate(chapterObj.optString("createdAt")),
+					branch = null,
+					source = source,
+				)
+				result.add(chapter)
+			}
+		} catch (e: Exception) {
+			e.printStackTrace()
+		}
+		return result.reversed()
 	}
 
 	private fun parseChapterDetailJson(json: String): ChapterDetailData {
@@ -372,18 +382,11 @@ internal class Komikcast(context: MangaLoaderContext) :
 		val coverImage: String,
 		val rating: Float,
 		val genres: List<GenreData>,
-		val chapters: List<ChapterData>?,
 	)
 
 	private data class GenreData(
 		val id: Int,
 		val name: String,
-	)
-
-	private data class ChapterData(
-		val index: Int,
-		val title: String,
-		val createdAt: String,
 	)
 
 	private data class ChapterDetailData(
