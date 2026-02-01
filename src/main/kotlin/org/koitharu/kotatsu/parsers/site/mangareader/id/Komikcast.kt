@@ -1,52 +1,23 @@
 package org.koitharu.kotatsu.parsers.site.mangareader.id
 
-import kotlinx.coroutines.delay
-import okhttp3.Interceptor
-import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
-import org.koitharu.kotatsu.parsers.model.ContentRating
-import org.koitharu.kotatsu.parsers.model.ContentType
-import org.koitharu.kotatsu.parsers.model.Manga
-import org.koitharu.kotatsu.parsers.model.MangaChapter
-import org.koitharu.kotatsu.parsers.model.MangaListFilter
-import org.koitharu.kotatsu.parsers.model.MangaListFilterCapabilities
-import org.koitharu.kotatsu.parsers.model.MangaPage
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.model.MangaState
-import org.koitharu.kotatsu.parsers.model.RATING_UNKNOWN
-import org.koitharu.kotatsu.parsers.model.SortOrder
-import org.koitharu.kotatsu.parsers.model.WordSet
-import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
-import org.koitharu.kotatsu.parsers.util.attrAsAbsoluteUrl
-import org.koitharu.kotatsu.parsers.util.attrAsRelativeUrl
-import org.koitharu.kotatsu.parsers.util.generateUid
-import org.koitharu.kotatsu.parsers.util.mapChapters
-import org.koitharu.kotatsu.parsers.util.mapNotNullToSet
-import org.koitharu.kotatsu.parsers.util.oneOrThrowIfMany
-import org.koitharu.kotatsu.parsers.util.ownTextOrNull
-import org.koitharu.kotatsu.parsers.util.parseHtml
-import org.koitharu.kotatsu.parsers.util.parseSafe
-import org.koitharu.kotatsu.parsers.util.selectFirstOrThrow
-import org.koitharu.kotatsu.parsers.util.src
-import org.koitharu.kotatsu.parsers.util.textOrNull
-import org.koitharu.kotatsu.parsers.util.toAbsoluteUrl
-import org.koitharu.kotatsu.parsers.util.urlEncoded
-import java.text.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.EnumSet
-import java.util.Locale
+import org.koitharu.kotatsu.parsers.core.PagedMangaParser
+import org.koitharu.kotatsu.parsers.model.*
+import org.koitharu.kotatsu.parsers.util.*
+import java.util.*
 
 @MangaSourceParser("KOMIKCAST", "KomikCast", "id")
 internal class Komikcast(context: MangaLoaderContext) :
-	PagedMangaParser(context, MangaParserSource.KOMIKCAST, "be.komikcast.fit", pageSize = 60, searchPageSize = 28) {
+	PagedMangaParser(context, MangaParserSource.KOMIKCAST, pageSize = 60) {
 
 	override val userAgentKey = ConfigKey.UserAgent(
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 	)
+
+    val searchPageSize = 28
+    override val configKeyDomain = ConfigKey.Domain("be.komikcast.fit")
 
 	override val availableSortOrders: Set<SortOrder> = EnumSet.of(
 		SortOrder.UPDATED,
@@ -56,7 +27,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 		SortOrder.NEWEST,
 	)
 
-	override val filterCapabilities = MangaListFilterCapabilities
+	override val filterCapabilities: MangaListFilterCapabilities
 		get() = MangaListFilterCapabilities(
 			isMultipleTagsSupported = true,
 			isTagsExclusionSupported = false,
@@ -140,99 +111,6 @@ internal class Komikcast(context: MangaLoaderContext) :
 
 		return parseSeriesList(webClient.httpGet(url).body?.string() ?: "")
 	}
-			else -> {
-				request.newBuilder()
-					.header("Referer", "https://$domain/")
-					.build()
-			}
-		}
-		return chain.proceed(newRequest)
-	}
-
-	override val listUrl = "/daftar-komik"
-	override val datePattern = "MMM d, yyyy"
-	override val sourceLocale: Locale = Locale.ENGLISH
-	override val availableSortOrders: Set<SortOrder> =
-		EnumSet.of(SortOrder.UPDATED, SortOrder.POPULARITY, SortOrder.ALPHABETICAL, SortOrder.ALPHABETICAL_DESC)
-
-	override val filterCapabilities: MangaListFilterCapabilities
-		get() = super.filterCapabilities.copy(
-			isTagsExclusionSupported = false
-		)
-
-	override suspend fun getFilterOptions() = super.getFilterOptions().copy(
-		availableStates = EnumSet.of(MangaState.ONGOING, MangaState.FINISHED),
-		availableContentTypes = EnumSet.of(
-			ContentType.MANGA,
-			ContentType.MANHWA,
-			ContentType.MANHUA,
-		),
-	)
-
-	override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
-		val url = buildString {
-			append("https://")
-			append(domain)
-
-			when {
-
-				!filter.query.isNullOrEmpty() -> {
-					append("/page/")
-					append(page.toString())
-					append("/?s=")
-					append(filter.query.urlEncoded())
-				}
-
-				else -> {
-					append(listUrl)
-					append("/page/")
-					append(page.toString())
-					append("/?")
-
-					filter.types.oneOrThrowIfMany()?.let { contentType ->
-						append("type=")
-						append(when (contentType) {
-							ContentType.MANGA -> "manga"
-							ContentType.MANHWA -> "manhwa"
-							ContentType.MANHUA -> "manhua"
-							else -> ""
-						})
-						append("&")
-					}
-
-					append(
-						when (order) {
-							SortOrder.ALPHABETICAL -> "orderby=titleasc"
-							SortOrder.ALPHABETICAL_DESC -> "orderby=titledesc"
-							SortOrder.POPULARITY -> "orderby=popular"
-							else -> "sortby=update"
-						},
-					)
-
-					val tagKey = "genre[]".urlEncoded()
-					val tagQuery =
-						if (filter.tags.isEmpty()) ""
-						else filter.tags.joinToString(separator = "&", prefix = "&") { "$tagKey=${it.key}" }
-					append(tagQuery)
-
-					if (filter.states.isNotEmpty()) {
-						filter.states.oneOrThrowIfMany()?.let {
-							append("&status=")
-							append(
-								when (it) {
-									MangaState.ONGOING -> "Ongoing"
-									MangaState.FINISHED -> "Completed"
-									else -> ""
-								}
-							)
-						}
-					}
-				}
-			}
-		}
-
-		return parseMangaList(webClient.httpGet(url).parseHtml())
-	}
 
 	override suspend fun getDetails(manga: Manga): Manga {
 		val slug = manga.url.substringAfter("/series/")
@@ -257,7 +135,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 				else -> null
 			},
 			authors = setOfNotNull(seriesData.author),
-			tags = seriesData.genres.mapNotNull { fetchGenreMap()[it.name] },
+			tags = seriesData.genres.mapNotNull { fetchGenreMap()[it.name] } as Set<MangaTag>,
 			coverUrl = seriesData.coverImage,
 			rating = if (seriesData.rating > 0) seriesData.rating / 10f else RATING_UNKNOWN,
 			chapters = seriesData.chapters?.mapIndexedNotNull { index, chapterData ->
@@ -293,8 +171,10 @@ internal class Komikcast(context: MangaLoaderContext) :
 		val json = webClient.httpGet(url).body?.string() ?: throw Exception("Failed to fetch chapter pages")
 		val chapterData = parseChapterDetailJson(json)
 
-		val images = chapterData.dataImages.values.sortedBy { it.key.toIntOrNull() ?: 0 }
-		return images.mapNotNull { imgUrl ->
+		val images = chapterData.dataImages.entries.sortedBy { it.key.toIntOrNull() ?: 0 }
+		return images.mapNotNull { entry ->
+			val imgUrl = entry.value
+			if (imgUrl.isNullOrEmpty()) return@mapNotNull null
 			if (imgUrl.isNullOrEmpty()) return@mapNotNull null
 			MangaPage(
 				id = generateUid(imgUrl),
@@ -305,15 +185,13 @@ internal class Komikcast(context: MangaLoaderContext) :
 		}
 	}
 
-	private val json by lazy { org.json.JSONObject() }
-
 	private suspend fun fetchGenreMap(): Map<String, MangaTag> {
 		val url = "https://$domain/genres"
-		val json = webClient.httpGet(url).body?.string() ?: return emptyMap()
+		val jsonStr = webClient.httpGet(url).body?.string() ?: return emptyMap()
 
 		val genreMap = mutableMapOf<String, MangaTag>()
 		try {
-			val dataArray = json(json).getJSONArray("data")
+			val dataArray = org.json.JSONObject(jsonStr).getJSONArray("data")
 			for (i in 0 until dataArray.length()) {
 				val genreObj = dataArray.getJSONObject(i)
 				val name = genreObj.getJSONObject("data").getString("name")
@@ -333,7 +211,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 	private fun parseSeriesList(json: String): List<Manga> {
 		val result = mutableListOf<Manga>()
 		try {
-			val responseObj = json(json)
+			val responseObj = org.json.JSONObject(json)
 			val dataArray = responseObj.getJSONObject("data").getJSONArray("data")
 
 			for (i in 0 until dataArray.length()) {
@@ -400,7 +278,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 	}
 
 	private fun parseSeriesJson(json: String): SeriesData {
-		val responseObj = json(json)
+		val responseObj = org.json.JSONObject(json)
 		val dataObj = responseObj.getJSONObject("data").getJSONObject("data")
 
 		val genreIds = dataObj.getJSONArray("genreIds")
@@ -442,7 +320,7 @@ internal class Komikcast(context: MangaLoaderContext) :
 	}
 
 	private fun parseChapterDetailJson(json: String): ChapterDetailData {
-		val responseObj = json(json)
+		val responseObj = org.json.JSONObject(json)
 		val dataObj = responseObj.getJSONObject("data").getJSONObject("data")
 
 		val imagesMap = mutableMapOf<String, String>()
