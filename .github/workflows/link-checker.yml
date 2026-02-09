@@ -16,6 +16,5 @@ jobs:
               id: lychee
               uses: lycheeverse/lychee-action@master
               with:
-                  args: -- '../../LINKS.md'
+                  args: -- '*.md'
                   fail: true
-                  output: '../../LINKS_VERIFY.md'
