@@ -1,0 +1,2 @@
+bato.to
+batocomic.com
