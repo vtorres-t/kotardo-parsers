@@ -115,7 +115,6 @@ internal class BatCave(context: MangaLoaderContext) :
 
 		if (allowBrowserAction) {
 			context.requestBrowserAction(this, finalUrl)
-			throw ParseException("Browser action requested for Cloudflare bypass", finalUrl)
 		}
 
 		throw ParseException("Failed to load page via webview", finalUrl)
