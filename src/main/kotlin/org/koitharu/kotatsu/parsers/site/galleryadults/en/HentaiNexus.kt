@@ -280,11 +280,11 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 		hash = hash and 7
 
 		// RC4 key scheduling
-		val S = IntArray(256) { it }
+		val s = IntArray(256) { it }
 		j = 0
 		for (i in 0 until 256) {
-			j = (j + S[i] + decodedString[i % 64].code) % 256
-			S[i] = S[j].also { S[j] = S[i] }
+			j = (j + s[i] + decodedString[i % 64].code) % 256
+			s[i] = s[j].also { s[j] = s[i] }
 		}
 
 		// Decrypt rest of the chars
@@ -297,11 +297,11 @@ internal class HentaiNexus(context: MangaLoaderContext) :
 
 		for (n in 0 until decodedString.length - 64) {
 			i = (i + step) % 256
-			j = (keyStream + S[(j + S[i]) % 256]) % 256
-			keyStream = (keyStream + i + S[i]) % 256
-			S[i] = S[j].also { S[j] = S[i] }
+			j = (keyStream + s[(j + s[i]) % 256]) % 256
+			keyStream = (keyStream + i + s[i]) % 256
+			s[i] = s[j].also { s[j] = s[i] }
 
-			rnd = S[(j + S[(i + S[(rnd + keyStream) % 256]) % 256]) % 256]
+			rnd = s[(j + s[(i + s[(rnd + keyStream) % 256]) % 256]) % 256]
 			val decryptedChar = decodedString[n + 64].code xor rnd
 			result.append(decryptedChar.toChar())
 		}

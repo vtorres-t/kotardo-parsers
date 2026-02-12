@@ -1,8 +1,7 @@
-package org.koitharu.kotatsu.parsers.site.all
+package org.koitharu.kotatsu.parsers.site.en
 
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -15,7 +14,6 @@ import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
-import org.koitharu.kotatsu.parsers.webview.InterceptedRequest
 import org.koitharu.kotatsu.parsers.webview.InterceptionConfig
 import java.math.BigInteger
 import java.net.URI
@@ -220,7 +218,7 @@ internal class Kagane(context: MangaLoaderContext) :
         // Disable related/suggested manga feature
         return emptyList()
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val uri = URI(chapter.url)
         val pathParts = uri.path.split("/").filter { it.isNotEmpty() }
