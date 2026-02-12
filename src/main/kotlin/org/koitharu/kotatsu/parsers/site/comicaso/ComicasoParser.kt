@@ -4,7 +4,6 @@ import androidx.collection.ArrayMap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
-import org.json.JSONObject
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
@@ -201,11 +200,6 @@ internal abstract class ComicasoParser(
 					source = source,
 				)
 			}
-
-		val type = doc.selectFirst(".ng-meta-info p:contains(Type:)")
-			?.ownText()
-			?.trim()
-			?.lowercase(sourceLocale)
 
 		val coverUrl = doc.selectFirst(".ng-detail-cover")
 			?.attr("style")
