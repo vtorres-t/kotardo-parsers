@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.parsers.site.en
 
 import androidx.collection.ArrayMap
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Response
 import org.json.JSONArray
