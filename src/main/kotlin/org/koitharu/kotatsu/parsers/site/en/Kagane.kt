@@ -52,18 +52,61 @@ internal class Kagane(context: MangaLoaderContext) :
             isMultipleTagsSupported = true
         )
 
-    override suspend fun getFilterOptions(): MangaListFilterOptions {
-        val genres = listOf(
-            "Romance", "Drama", "Manhwa", "Fantasy", "Manga", "Comedy", "Action", "Mature",
-            "Shoujo", "Josei", "Shounen", "Slice of Life", "Seinen", "Adventure", "Manhua",
-            "School Life", "Smut", "Yaoi", "Hentai", "Historical", "Isekai", "Mystery",
-            "Psychological", "Tragedy", "Harem", "Martial Arts", "Sci-Fi", "Ecchi", "Horror"
-        ).map { MangaTag(it, it, source) }.toSet()
+    private var genresCache: Set<MangaTag>? = null
+    private val UUID_REGEX = Regex(
+        "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    )
 
+    override suspend fun getFilterOptions(): MangaListFilterOptions {
+        val genres = genresCache ?: fetchGenres().also { genresCache = it }
         return MangaListFilterOptions(
             availableTags = genres,
-            availableContentRating = EnumSet.of(ContentRating.SAFE, ContentRating.ADULT)
+            availableContentRating = EnumSet.of(
+                ContentRating.SAFE,
+                ContentRating.SUGGESTIVE,
+                ContentRating.ADULT,
+            ),
         )
+    }
+
+    private suspend fun fetchGenres(): Set<MangaTag> {
+        val headers = getRequestHeaders().newBuilder()
+            .add("Origin", "https://$domain")
+            .add("Referer", "https://$domain/")
+            .build()
+        return try {
+            val raw = webClient.httpGet("$apiUrl/api/v2/genres/list", headers).parseRaw()
+            val genres = runCatching { JSONArray(raw) }.getOrElse {
+                val wrapper = runCatching { JSONObject(raw) }.getOrNull()
+                wrapper?.optJSONArray("content")
+                    ?: wrapper?.optJSONArray("genres")
+                    ?: JSONArray()
+            }
+            buildSet {
+                for (i in 0 until genres.length()) {
+                    val item = genres.optJSONObject(i) ?: continue
+                    val id = item.optString("genre_id").ifBlank { item.optString("id") }
+                    val title = item.optString("genre_name")
+                        .ifBlank { item.optString("genreName") }
+                        .ifBlank { item.optString("name") }
+                        .ifBlank { item.optString("title") }
+                    if (id.isNotBlank() && title.isNotBlank() && UUID_REGEX.matches(id)) {
+                        add(MangaTag(title, id, source))
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    private fun parseContentRating(value: String?): ContentRating? {
+        return when (value?.lowercase(Locale.ROOT)) {
+            "safe" -> ContentRating.SAFE
+            "suggestive" -> ContentRating.SUGGESTIVE
+            "adult", "erotica", "pornographic" -> ContentRating.ADULT
+            else -> null
+        }
     }
 
     override suspend fun getListPage(page: Int, order: SortOrder, filter: MangaListFilter): List<Manga> {
@@ -81,9 +124,10 @@ internal class Kagane(context: MangaLoaderContext) :
             jsonBody.put("title", filter.query)
         }
 
-        if (filter.tags.isNotEmpty()) {
+        val genreIds = filter.tags.map { it.key }.filter { UUID_REGEX.matches(it) }
+        if (genreIds.isNotEmpty()) {
             val genresArr = JSONArray()
-            filter.tags.forEach { genresArr.put(it.key) }
+            genreIds.forEach { genresArr.put(it) }
             val genresObj = JSONObject()
             genresObj.put("values", genresArr)
             genresObj.put("match_all", false)
@@ -127,12 +171,18 @@ internal class Kagane(context: MangaLoaderContext) :
             val name = item.optString("name").ifBlank { item.optString("title") }.ifBlank { return@mapNotNull null }
             val src = item.optString("source").ifBlank { item.optString("source_name") }
             val title = if (src.isNotEmpty()) "$name [$src]" else name
+            val coverImageId = item.optString("cover_image_id").ifBlank { item.optString("coverImageId") }
+            val coverUrl = if (coverImageId.isNotBlank()) {
+                "$apiUrl/api/v2/image/$coverImageId/compressed"
+            } else {
+                "$apiUrl/api/v2/series/$id/thumbnail"
+            }
 
             Manga(
                 id = generateUid(id),
                 url = id,
                 publicUrl = "https://$domain/series/$id",
-                coverUrl = "$apiUrl/api/v2/series/$id/thumbnail",
+                coverUrl = coverUrl,
                 title = title,
                 altTitles = emptySet(),
                 rating = RATING_UNKNOWN,
@@ -140,7 +190,7 @@ internal class Kagane(context: MangaLoaderContext) :
                 authors = emptySet(),
                 state = null,
                 source = source,
-                contentRating = ContentRating.SAFE
+                contentRating = parseContentRating(item.optString("content_rating"))
             )
         }
     }
@@ -155,92 +205,142 @@ internal class Kagane(context: MangaLoaderContext) :
         val resp = webClient.httpGet(url, headers)
         val respBody = resp.body?.string() ?: ""
         if (!resp.isSuccessful) throw Exception("Details error ${resp.code}: $respBody")
-        val json = try { JSONObject(respBody) } catch(e: Exception) { throw Exception("Invalid JSON details: $respBody") }
+        val json = try {
+            JSONObject(respBody)
+        } catch (e: Exception) {
+            throw Exception("Invalid JSON details: $respBody")
+        }
 
-        val desc = StringBuilder()
-        json.optString("summary").takeIf { it.isNotEmpty() }?.let { desc.append(it).append("\n\n") }
-        val sourceStr = json.optString("source")
-        if (sourceStr.isNotEmpty()) desc.append("Source: $sourceStr\n")
-
-        val statusStr = json.optString("status")
-        val state = when (statusStr.uppercase()) {
+        val state = when (
+            json.optString("publication_status")
+                .ifBlank { json.optString("upload_status") }
+                .ifBlank { json.optString("status") }
+                .uppercase(Locale.ROOT)
+        ) {
             "ONGOING" -> MangaState.ONGOING
-            "ENDED" -> MangaState.FINISHED
+            "COMPLETED", "ENDED" -> MangaState.FINISHED
             "HIATUS" -> MangaState.PAUSED
+            "CANCELLED", "CANCELED", "DROPPED" -> MangaState.ABANDONED
             else -> null
         }
 
         val genres = json.optJSONArray("genres")?.let { arr ->
             (0 until arr.length()).mapNotNull { i ->
                 when (val item = arr.opt(i)) {
-                    is String -> item.takeIf { it.isNotBlank() }
+                    is String -> {
+                        if (UUID_REGEX.matches(item)) {
+                            MangaTag(item, item, source)
+                        } else {
+                            null
+                        }
+                    }
                     is JSONObject -> {
-                        item.optString("genreName")
+                        val key = item.optString("genre_id").ifBlank { item.optString("id") }
+                        val name = item.optString("genre_name")
+                            .ifBlank { item.optString("genreName") }
                             .ifBlank { item.optString("name") }
                             .ifBlank { item.optString("title") }
-                            .takeIf { it.isNotBlank() }
-                    }
-                    else -> null
-                }
-            }
-        } ?: emptyList()
-
-        val authors = json.optJSONArray("authors")?.let { arr ->
-            (0 until arr.length()).mapNotNull { i ->
-                when (val item = arr.opt(i)) {
-                    is String -> item.takeIf { it.isNotBlank() }
-                    is JSONObject -> {
-                        item.optString("name")
-                            .ifBlank { item.optString("title") }
-                            .takeIf { it.isNotBlank() }
+                        if (key.isNotBlank() && name.isNotBlank()) {
+                            MangaTag(name, key, source)
+                        } else {
+                            null
+                        }
                     }
                     else -> null
                 }
             }.toSet()
         } ?: emptySet()
 
-        val content = json.optJSONArray("seriesBooks")
-            ?: json.optJSONArray("books")
-            ?: json.optJSONArray("content")
-            ?: JSONArray()
+        val authors = linkedSetOf<String>()
+        json.optJSONArray("authors")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                when (val item = arr.opt(i)) {
+                    is String -> item.takeIf { it.isNotBlank() }?.let(authors::add)
+                    is JSONObject -> item.optString("name")
+                        .ifBlank { item.optString("title") }
+                        .takeIf { it.isNotBlank() }
+                        ?.let(authors::add)
+                }
+            }
+        }
+        if (authors.isEmpty()) {
+            json.optJSONArray("series_staff")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val staff = arr.optJSONObject(i) ?: continue
+                    val role = staff.optString("role")
+                    if (role.equals("author", ignoreCase = true) || role.equals("artist", ignoreCase = true)) {
+                        staff.optString("name").takeIf { it.isNotBlank() }?.let(authors::add)
+                    }
+                }
+            }
+        }
 
-        val chapters = ArrayList<MangaChapter>()
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
-
-        for (i in 0 until content.length()) {
-            val ch = content.getJSONObject(i)
-            val chId = ch.optString("id").ifBlank { ch.optString("book_id") }
-            if (chId.isBlank()) continue
-            val chTitle = ch.optString("title").ifBlank { ch.optString("name") }
-            val number = ch.optDouble(
-                "number_sort",
-                ch.optDouble("numberSort", ch.optDouble("number", 0.0)),
-            ).toFloat()
-            val dateStr = ch.optString("release_date").ifBlank { ch.optString("releaseDate") }
-            val pageCount = ch.optInt("pages_count", ch.optInt("pagesCount", 0))
-
-            chapters.add(
-                MangaChapter(
-                    id = generateUid(chId),
-                    title = chTitle,
-                    number = number,
-                    volume = 0,
-                    // Store URL for WebView
-                    url = "/series/$seriesId/$chId?pages=$pageCount",
-                    uploadDate = try { dateFormat.parse(dateStr)?.time ?: 0L } catch (e: Exception) { 0L },
-                    source = source,
-                    scanlator = null,
-                    branch = null
+        fun parseChapters(content: JSONArray): List<MangaChapter> {
+            val chapters = ArrayList<MangaChapter>(content.length())
+            for (i in 0 until content.length()) {
+                val ch = content.optJSONObject(i) ?: continue
+                val chId = ch.optString("book_id")
+                    .ifBlank { ch.optString("id") }
+                    .ifBlank { ch.optString("bookId") }
+                if (chId.isBlank()) continue
+                val chapterNo = ch.optString("chapter_no")
+                val number = ch.optDouble("sort_no", Double.NaN).takeIf { !it.isNaN() }?.toFloat()
+                    ?: ch.optDouble("number_sort", ch.optDouble("numberSort", Double.NaN)).takeIf { !it.isNaN() }?.toFloat()
+                    ?: chapterNo.toFloatOrNull()
+                    ?: ch.optDouble("number", 0.0).toFloat()
+                val chTitle = ch.optString("title")
+                    .ifBlank { ch.optString("name") }
+                    .ifBlank { chapterNo.takeIf { it.isNotBlank() }?.let { "Chapter $it" }.orEmpty() }
+                    .ifBlank { "Chapter $number" }
+                val pageCount = ch.optInt("page_count", ch.optInt("pages_count", ch.optInt("pagesCount", 0)))
+                val dateStr = ch.optString("published_on")
+                    .ifBlank { ch.optString("release_date") }
+                    .ifBlank { ch.optString("releaseDate") }
+                    .ifBlank { ch.optString("created_at") }
+                    .substringBefore('T')
+                chapters.add(
+                    MangaChapter(
+                        id = generateUid("$seriesId:$chId"),
+                        title = chTitle,
+                        number = number,
+                        volume = 0,
+                        url = "/series/$seriesId/$chId?pages=$pageCount",
+                        uploadDate = try { dateFormat.parse(dateStr)?.time ?: 0L } catch (_: Exception) { 0L },
+                        source = source,
+                        scanlator = null,
+                        branch = null,
+                    ),
                 )
+            }
+            return chapters
+        }
+
+        var chapters = parseChapters(
+            json.optJSONArray("series_books")
+                ?: json.optJSONArray("seriesBooks")
+                ?: json.optJSONArray("books")
+                ?: json.optJSONArray("content")
+                ?: JSONArray(),
+        )
+        if (chapters.isEmpty()) {
+            val chaptersUrl = "$apiUrl/api/v2/series/$seriesId/books/list"
+            val chapterResp = webClient.httpGet(chaptersUrl, headers).parseJson()
+            chapters = parseChapters(
+                chapterResp.optJSONArray("series_books")
+                    ?: chapterResp.optJSONArray("seriesBooks")
+                    ?: chapterResp.optJSONArray("content")
+                    ?: JSONArray(),
             )
         }
 
         return manga.copy(
-            description = desc.toString(),
+            description = json.optString("description").ifBlank { json.optString("summary") }.ifBlank { null },
             state = state,
             authors = authors,
-            tags = genres.map { MangaTag(it, it, source) }.toSet(),
-            chapters = chapters
+            tags = genres,
+            chapters = chapters,
+            contentRating = parseContentRating(json.optString("content_rating")) ?: manga.contentRating,
         )
     }
 
