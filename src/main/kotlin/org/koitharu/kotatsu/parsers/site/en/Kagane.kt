@@ -36,7 +36,7 @@ internal class Kagane(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.KAGANE, pageSize = 35) {
 
     override val configKeyDomain = ConfigKey.Domain("kagane.org")
-    private val apiUrl = "https://api.kagane.org"
+    private val apiUrl = "https://yuzuki.kagane.org"
 
     override val availableSortOrders: Set<SortOrder> = EnumSet.of(
         SortOrder.UPDATED,
@@ -220,7 +220,7 @@ internal class Kagane(context: MangaLoaderContext) :
         // Disable related/suggested manga feature
         return emptyList()
     }
-    
+
     override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
         val uri = URI(chapter.url)
         val pathParts = uri.path.split("/").filter { it.isNotEmpty() }
