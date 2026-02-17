@@ -101,10 +101,6 @@ internal class RinkoComics(context: MangaLoaderContext) :
 	}
 
 	override suspend fun getPages(chapter: MangaChapter): List<MangaPage> {
-		if (chapter.url.contains(LOCK_SUFFIX)) {
-			throw IllegalStateException("This chapter is locked. Use WebView to purchase it.")
-		}
-
 		val document = webClient.httpGet(chapter.url.toAbsoluteUrl(domain)).parseHtml()
 		val pages = document.select("img.chapter-image").mapNotNull { image ->
 			val imageUrl = imageFromElement(image) ?: return@mapNotNull null
@@ -116,9 +112,6 @@ internal class RinkoComics(context: MangaLoaderContext) :
 			)
 		}
 
-		if (pages.isEmpty()) {
-			throw IllegalStateException("Chapter is locked or unavailable.")
-		}
 		return pages
 	}
 
@@ -218,7 +211,7 @@ internal class RinkoComics(context: MangaLoaderContext) :
 			}
 		}
 
-		return chapters.values.toList()
+		return chapters.values.toList().reversed()
 	}
 
 	private fun parseChapterElements(elements: List<Element>): List<MangaChapter> {
@@ -234,14 +227,14 @@ internal class RinkoComics(context: MangaLoaderContext) :
 				?: return@mapNotNull null
 
 			val locked = isLocked(element)
-			val finalUrl = if (locked) chapterUrl + LOCK_SUFFIX else chapterUrl
+			if (locked) return@mapNotNull null
 
 			MangaChapter(
-				id = generateUid(finalUrl),
-				title = if (locked) "$LOCK_PREFIX$chapterTitle" else chapterTitle,
+				id = generateUid(chapterUrl),
+				title = chapterTitle,
 				number = parseChapterNumber(chapterTitle),
 				volume = 0,
-				url = finalUrl,
+				url = chapterUrl,
 				scanlator = null,
 				uploadDate = parseDate(element.selectFirst(".chapter-date")?.textOrNull()),
 				branch = null,
@@ -337,8 +330,6 @@ internal class RinkoComics(context: MangaLoaderContext) :
 
 	companion object {
 		private const val SORT_PARAM = "sort"
-		private const val LOCK_PREFIX = "[LOCKED] "
-		private const val LOCK_SUFFIX = "#lock"
 		private const val CHAPTER_SELECTOR = "li.chapter"
 		private const val CHAPTERS_PER_PAGE = 10
 		private val NONCE_REGEX = Regex(

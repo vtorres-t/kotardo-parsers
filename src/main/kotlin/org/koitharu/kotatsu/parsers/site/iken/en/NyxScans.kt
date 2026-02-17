@@ -19,7 +19,9 @@ internal class NyxScans(context: MangaLoaderContext) :
 			if (page != 1) {
 				return emptyList()
 			}
-			return parsePopularManga()
+			return runCatching { parsePopularManga() }.getOrElse {
+				super.getListPage(page, order, filter)
+			}
 		}
 		return super.getListPage(page, order, filter)
 	}
