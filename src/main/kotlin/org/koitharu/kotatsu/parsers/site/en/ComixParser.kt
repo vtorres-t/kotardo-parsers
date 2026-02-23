@@ -172,7 +172,6 @@ internal class Comix(context: MangaLoaderContext) :
         val poster = json.getJSONObject("poster")
         val coverUrl = poster.optString("large", "").nullIfEmpty()
         val status = json.optString("status", "")
-        val year = json.optInt("year", 0)
         val rating = json.optDouble("rated_avg", 0.0)
 
         val state = when (status) {

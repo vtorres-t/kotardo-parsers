@@ -5,7 +5,6 @@ import androidx.collection.SparseArrayCompat
 import okhttp3.HttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
-import org.koitharu.kotatsu.parsers.Broken
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -240,14 +239,6 @@ internal class ComickFunParser(context: MangaLoaderContext) :
 
         val rawHtml = context.evaluateJs(searchUrl, script, 30000L)
             ?: return emptyList() // Return empty if page fails to load
-
-        val html = if (rawHtml.startsWith("\"") && rawHtml.endsWith("\"")) {
-            rawHtml.substring(1, rawHtml.length - 1)
-                .replace("\\\"", "\"")
-                .replace("\\n", "\n")
-                .replace("\\r", "\r")
-                .replace("\\t", "\t")
-        } else rawHtml
 
         // Parse search results from HTML (would need proper selectors)
         // For now return empty as this requires knowing ComicK's HTML structure

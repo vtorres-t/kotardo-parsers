@@ -9,8 +9,6 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.model.search.MangaSearchQuery
 import org.koitharu.kotatsu.parsers.model.search.MangaSearchQueryCapabilities
 import org.koitharu.kotatsu.parsers.util.LinkResolver
-import org.koitharu.kotatsu.parsers.util.convertToMangaSearchQuery
-import org.koitharu.kotatsu.parsers.util.toMangaListFilterCapabilities
 import java.util.*
 
 public interface MangaParser : Interceptor {

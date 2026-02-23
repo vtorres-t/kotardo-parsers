@@ -18,7 +18,6 @@ import org.koitharu.kotatsu.parsers.util.*
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.text.get
 
 internal abstract class MangaboxParser(
     context: MangaLoaderContext,

@@ -1,4 +1,4 @@
-package org.koitharu.kotatsu.parsers.site.all
+package org.koitharu.kotatsu.parsers.site.en
 
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType

@@ -4,7 +4,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import okhttp3.Interceptor
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
@@ -14,7 +13,6 @@ import org.koitharu.kotatsu.parsers.model.search.MangaSearchQueryCapabilities
 import org.koitharu.kotatsu.parsers.model.search.QueryCriteria.Include
 import org.koitharu.kotatsu.parsers.model.search.QueryCriteria.Match
 import org.koitharu.kotatsu.parsers.model.search.SearchCapability
-import org.koitharu.kotatsu.parsers.model.search.SearchableField
 import org.koitharu.kotatsu.parsers.model.search.SearchableField.*
 import org.koitharu.kotatsu.parsers.site.mangabox.MangaboxParser
 import org.koitharu.kotatsu.parsers.util.*
