@@ -50,7 +50,7 @@ internal class ExHentaiParser(
 
     private val ratingPattern = Regex("-?[0-9]+px")
     private val titleCleanupPattern = Regex("(\\[.*?]|\\([C0-9]*\\))")
-    private val spacesCleanupPattern = Regex("(^\\s+|\\s+\$|\\s+(?=\\s))")
+    private val spacesCleanupPattern = Regex($$"(^\\s+|\\s+$|\\s+(?=\\s))")
     private val authCookies = arrayOf("ipb_member_id", "ipb_pass_hash")
     private val suspiciousContentKey = ConfigKey.ShowSuspiciousContent(false)
     private val nextPages = MutableIntObjectMap<MutableIntLongMap>()

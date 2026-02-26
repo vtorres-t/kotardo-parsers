@@ -216,16 +216,16 @@ internal class ImHentai(context: MangaLoaderContext) :
 		val doc = webClient.httpGet(fullUrl).parseHtml()
 		val totalPages = doc.selectFirstOrThrow(".pages").text().replace("Pages: ", "").toInt()
 		val baseImg = doc.requireElementById("append_thumbs").selectFirstOrThrow("img")
-		val baseUrl = baseImg.selectFirstParentOrThrow("a").attrAsRelativeUrl("href").replace("/1/", "/\$/")
-		val baseThumbUrl = baseImg.src()?.replace("/1t.", "/\$t.")
+		val baseUrl = baseImg.selectFirstParentOrThrow("a").attrAsRelativeUrl("href").replace("/1/", $$"/$/")
+		val baseThumbUrl = baseImg.src()?.replace("/1t.", $$"/$t.")
 		val pages = ArrayList<MangaPage>(totalPages)
 		repeat(totalPages) { i ->
-			val url = baseUrl.replace("\$", (i + 1).toString())
+			val url = baseUrl.replace($$"$", (i + 1).toString())
 			pages.add(
 				MangaPage(
 					id = generateUid(url),
 					url = url,
-					preview = baseThumbUrl?.replace("\$", (i + 1).toString()),
+					preview = baseThumbUrl?.replace($$"$", (i + 1).toString()),
 					source = source,
 				),
 			)
