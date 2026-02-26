@@ -1,5 +1,7 @@
 package org.koitharu.kotatsu.parsers.site.en
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -451,7 +453,9 @@ internal class Kagane(context: MangaLoaderContext) :
         }
 
         val challengeEncoded = resultRequest.getQueryParameter("challenge") ?: throw Exception("No challenge in interception")
-        val challenge = URLDecoder.decode(challengeEncoded, StandardCharsets.UTF_8.name())
+        val challenge = withContext(Dispatchers.IO) {
+            URLDecoder.decode(challengeEncoded, StandardCharsets.UTF_8.name())
+        }
 
         // 5. POST to API to get token
         val challengeUrl = "$apiUrl/api/v2/books/$chapterId?is_datasaver=false"
