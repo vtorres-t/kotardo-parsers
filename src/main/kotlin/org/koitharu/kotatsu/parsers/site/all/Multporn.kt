@@ -9,7 +9,7 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
-@MangaSourceParser("MULTPORN", "Multporn")
+@MangaSourceParser("MULTPORN", "Multporn", type = ContentType.HENTAI)
 internal class Multporn(context: MangaLoaderContext) :
     PagedMangaParser(context, MangaParserSource.MULTPORN, 42) {
 
@@ -31,7 +31,7 @@ internal class Multporn(context: MangaLoaderContext) :
         get() = MangaListFilterCapabilities(
             isSearchSupported = true,
         )
-    
+
     init {
 		setFirstPage(0)
 	}
@@ -81,7 +81,7 @@ internal class Multporn(context: MangaLoaderContext) :
                     append("&page=0,")
                     append(page)
                 }
-                
+
                 else -> {
                     append("/new")
                     append("?type=")
@@ -97,7 +97,7 @@ internal class Multporn(context: MangaLoaderContext) :
 						}
 					} else append("All")
 
-                    
+
                     filter.locale?.let {
                         append("&language=")
                         append(
@@ -113,7 +113,7 @@ internal class Multporn(context: MangaLoaderContext) :
                     }
 
                     append("&field_user_discription_value=All")
-                    
+
                     append("&sort_by=")
 					append(
 						when (order) {
@@ -124,7 +124,7 @@ internal class Multporn(context: MangaLoaderContext) :
                             else -> "created&sort_order=DESC" // default
 						}
 					)
-                    
+
                     append("&undefined=Apply")
                     append("&page=$page")
                 }
@@ -158,7 +158,7 @@ internal class Multporn(context: MangaLoaderContext) :
                 parseUnlabelledAuthorNames(doc)).distinct()
 
         val tags = listOf("Tags", "Section", "Characters")
-            .flatMap { type -> 
+            .flatMap { type ->
                 doc.select(".field:has(.field-label:contains($type:)) .links a").map { it.text() }
             }
             .distinct()

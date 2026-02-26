@@ -8,7 +8,7 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
 import java.util.*
 
-@MangaSourceParser("MISSKON", "MissKon", type = ContentType.OTHER)
+@MangaSourceParser("MISSKON", "MissKon", type = ContentType.HENTAI)
 internal class Misskon(context: MangaLoaderContext) : PagedMangaParser(context, MangaParserSource.MISSKON, 24) {
 
     override val configKeyDomain = ConfigKey.Domain("misskon.com")
@@ -52,7 +52,7 @@ internal class Misskon(context: MangaLoaderContext) : PagedMangaParser(context, 
             val titleEl = article.selectFirst(".post-box-title")!!
             val href = titleEl.selectFirst("a")?.attrAsRelativeUrl("href")
                 ?: article.parseFailed("Cannot find manga link")
-            
+
             Manga(
                 id = generateUid(href),
                 title = titleEl.text(),
@@ -105,7 +105,7 @@ internal class Misskon(context: MangaLoaderContext) : PagedMangaParser(context, 
 
         val pages = mutableListOf<MangaPage>()
         val pageLinks = doc.select("div.post-inner div.page-link:nth-child(1) .post-page-numbers")
-        
+
         if (pageLinks.isEmpty()) {
             // Single page gallery
             return doc.select("div.post-inner > div.entry > p > img")
@@ -129,7 +129,7 @@ internal class Misskon(context: MangaLoaderContext) : PagedMangaParser(context, 
                     webClient.httpGet(url).parseHtml()
                 }
             }
-            
+
             pages.addAll(
                 pageDoc.select("div.post-inner > div.entry > p > img")
                     .mapNotNull { img -> img.absUrl("data-src") }
