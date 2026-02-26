@@ -97,10 +97,10 @@ class ParserProcessor(
             .count()
 
         factoryWriter?.write(
-            """
+            $$"""
 			}.let {
 				require(it.source == this) {
-					"Cannot instantiate manga parser: ${'$'}name mapped to ${'$'}{it.source}"
+					"Cannot instantiate manga parser: $name mapped to ${it.source}"
 				}
 				MangaParserWrapper(it)
 			}

@@ -127,9 +127,7 @@ internal class YaoiMangaOnline(context: MangaLoaderContext) :
 			val titleAnchor = article.selectFirst("h2.entry-title a") ?: return@mapNotNull null
 			val rawHref = titleAnchor.attrAsRelativeUrlOrNull("href")
 				?: titleAnchor.attr("href").toRelativeUrl(domain)
-			val coverUrl = article.selectFirst("img")?.let { img ->
-				img.resolveImageUrl()
-			}
+			val coverUrl = article.selectFirst("img")?.resolveImageUrl()
 
 			Manga(
 				id = generateUid(rawHref),

@@ -2,14 +2,12 @@ package org.koitharu.kotatsu.parsers.site.es
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
 import org.koitharu.kotatsu.parsers.MangaLoaderContext
 import org.koitharu.kotatsu.parsers.MangaSourceParser
 import org.koitharu.kotatsu.parsers.config.ConfigKey
 import org.koitharu.kotatsu.parsers.core.PagedMangaParser
 import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.util.*
-import java.util.Base64
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -254,7 +252,7 @@ internal class MangaOni(context: MangaLoaderContext) :
 		val cleanedData = scriptData.dropLast(drop)
 
 		// Decode base64
-		val decodedBytes = java.util.Base64.getDecoder().decode(cleanedData)
+		val decodedBytes = Base64.getDecoder().decode(cleanedData)
 		val decoded = String(decodedBytes, Charsets.UTF_8)
 
 		val path = decoded.substringBefore("||")

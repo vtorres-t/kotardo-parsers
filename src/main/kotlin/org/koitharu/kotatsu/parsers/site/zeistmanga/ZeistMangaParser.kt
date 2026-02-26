@@ -153,18 +153,18 @@ internal abstract class ZeistMangaParser(
 
 	protected open fun parseMangaList(json: JSONArray): List<Manga> {
 		return json.mapJSON { j ->
-			val name = j.getJSONObject("title").getString("\$t")
+			val name = j.getJSONObject("title").getString($$"$t")
 			val href =
 				j.getJSONArray("link").asTypedList<JSONObject>().first { it.getString("rel") == "alternate" }
 					.getString("href")
-			val urlImg = if (j.toString().contains("media\$thumbnail")) {
-				j.getJSONObject("media\$thumbnail").getStringOrNull("url")
+			val urlImg = if (j.toString().contains($$"media$thumbnail")) {
+				j.getJSONObject($$"media$thumbnail").getStringOrNull("url")
 					?.replace("""/s.+?-c/""".toRegex(), "/w600/")
 					?.replace("""=s(?!.*=s).+?-c$""".toRegex(), "=w600")
 					?.replace("""/s.+?-c-rw/""".toRegex(), "/w600/")
 					?.replace("""=s(?!.*=s).+?-c-rw$""".toRegex(), "=w600")
 			} else {
-				Jsoup.parse(j.getJSONObject("content").getString("\$t")).selectFirst("img")?.attr("src")
+				Jsoup.parse(j.getJSONObject("content").getString($$"$t")).selectFirst("img")?.attr("src")
 			}
 			Manga(
 				id = generateUid(href),
@@ -282,11 +282,11 @@ internal abstract class ZeistMangaParser(
 				.reversed()
 		val dateFormat = SimpleDateFormat(datePattern, sourceLocale)
 		return json.mapIndexedNotNull { i, j ->
-			val name = j.getJSONObject("title").getString("\$t")
+			val name = j.getJSONObject("title").getString($$"$t")
 			val href =
 				j.getJSONArray("link").asTypedList<JSONObject>().first { it.getString("rel") == "alternate" }
 					.getString("href")
-			val dateText = j.getJSONObject("published").getString("\$t").substringBefore("T")
+			val dateText = j.getJSONObject("published").getString($$"$t").substringBefore("T")
 			val slug = mangaUrl.substringAfterLast('/')
 			val slugChapter = href.substringAfterLast('/')
 			if (slug == slugChapter) {

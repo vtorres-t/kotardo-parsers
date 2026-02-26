@@ -237,7 +237,7 @@ internal class ComickFunParser(context: MangaLoaderContext) :
             })();
         """.trimIndent()
 
-        val rawHtml = context.evaluateJs(searchUrl, script, 30000L)
+        context.evaluateJs(searchUrl, script, 30000L)
             ?: return emptyList() // Return empty if page fails to load
 
         // Parse search results from HTML (would need proper selectors)

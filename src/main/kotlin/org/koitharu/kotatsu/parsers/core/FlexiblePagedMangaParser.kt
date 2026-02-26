@@ -10,10 +10,10 @@ import org.koitharu.kotatsu.parsers.util.Paginator
 
 @Deprecated("Too complex. Use PagedMangaParser instead")
 internal abstract class FlexiblePagedMangaParser(
-	context: MangaLoaderContext,
-	source: MangaParserSource,
-	@VisibleForTesting(otherwise = VisibleForTesting.PROTECTED) @JvmField public val pageSize: Int,
-	searchPageSize: Int = pageSize,
+    context: MangaLoaderContext,
+    source: MangaParserSource,
+    @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED) @JvmField val pageSize: Int,
+    searchPageSize: Int = pageSize,
 ) : FlexibleMangaParser(context, source) {
 
 	@JvmField
@@ -40,7 +40,7 @@ internal abstract class FlexiblePagedMangaParser(
 		)
 	}
 
-	public abstract suspend fun getListPage(query: MangaSearchQuery, page: Int): List<Manga>
+	abstract suspend fun getListPage(query: MangaSearchQuery, page: Int): List<Manga>
 
 	protected fun setFirstPage(firstPage: Int, firstPageForSearch: Int = firstPage) {
 		paginator.firstPage = firstPage

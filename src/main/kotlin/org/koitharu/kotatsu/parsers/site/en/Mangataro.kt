@@ -566,10 +566,10 @@ internal class Mangataro(context: MangaLoaderContext) :
 		}
 		val ids = LinkedHashSet<String>(size)
 		for (tag in this) {
-			val numericKey = tag.key?.toIntOrNull()?.let { it.toString() }
+			val numericKey = tag.key?.toIntOrNull()?.toString()
 				?: genreTags.firstOrNull { ref ->
-					ref.title.equals(tag.title, ignoreCase = true)
-				}?.key?.toIntOrNull()?.let { it.toString() }
+                                ref.title.equals(tag.title, ignoreCase = true)
+                            }?.key?.toIntOrNull()?.toString()
 			if (numericKey != null) {
 				ids.add(numericKey)
 			}
